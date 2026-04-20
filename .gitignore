@@ -1,0 +1,110 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+/media/
+/staticfiles/
+
+# If using a media directory for uploads, ignore it (uncomment if used)
+# media/
+
+# Unit test / coverage
+.pytest_cache/
+coverage/
+htmlcov/
+.tox/
+.nox/
+
+# Translations
+*.mo
+*.pot
+
+# Environments
+.env
+*.env
+.env.*
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor swap/temp files
+*~
+*.swp
+*.swo
+
+# Node
+node_modules/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+
+# Python Version Manager
+.python-version
+
+# PyCharm
+.idea/
+
+# VS Code workspace
+.vscode/
+
+# Coverage reports
+.coverage
+coverage.xml
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyd
+*.pyo
+
+# C extensions
+*.so
+
+# JetBrains
+.idea/
+
+# Ignore secrets if present
+secrets.json
+
+# End of .gitignore
+
+tmp/
+temp/

@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  # PostgreSQL DB Service
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: skincare
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: MDriadhossen1@
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    ports:
+      - "5431:5432"
+
+  # Django Web Service
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      sh -c "python manage.py migrate && python manage.py collectstatic --noinput && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - DEBUG=1
+      - DB_NAME=skincare
+      - DB_USER=myuser
+      - DB_PASSWORD=MDriadhossen1@
+      - DB_HOST=db
+      - DB_PORT=5432
+
+  # Redis Service
+  redis:
+    image: redis:6
+    volumes:
+      - ./tmp/redis:/data
+
+  # Celery Worker Service
+  celery:
+    build: .
+    command: celery -A skincare worker --loglevel=info --concurrency=4 --logfile=tmp/celery-worker.log
+    depends_on:
+      - web   
+      - redis
+    volumes:
+      - .:/app
+
+  # Celery Beat Service (for periodic tasks)
+  celery-beat:
+    build: .
+    command: celery -A skincare beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    depends_on:
+      - web   
+      - redis
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data:
