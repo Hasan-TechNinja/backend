@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import RegisterView,LoginAPIView,CustomTokenRefresView,ChangePasswordApiView,ForgetPasswordSendOTP, ForgetPasswordVerifyOTP, ForgetPasswordReset ,ProfileAPIView
+from .views import RegisterView,LoginAPIView,CustomTokenRefresView,ChangePasswordApiView,ForgetPasswordSendOTP, ForgetPasswordVerifyOTP, ForgetPasswordReset ,ProfileAPIView,PrivacyPolicyView,TermsAndConditionsView
 
 
 
@@ -19,5 +19,9 @@ urlpatterns = [
 
     #profile
     path('profile/', ProfileAPIView.as_view(), name='profile'),
+
+    #privacy policy and terms and conditions
+    path('privacy-policy/', PrivacyPolicyView.as_view(), name='privacy-policy'),
+    path('terms-and-conditions/', TermsAndConditionsView.as_view(), name='terms-and-conditions'),
 
 ]

@@ -43,6 +43,8 @@ urlpatterns = [
     path("",include("account.urls")),
     path("adminapi/",include("adminapi.urls")),
     path("userapi/",include("userapi.urls")),
+    path("productapi/",include("product.urls")),
+    path("accountapi/",include("account.urls")),
 
 
 

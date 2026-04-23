@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User,Profile,PasswordReserOTP
+from .models import User,Profile,PasswordReserOTP,PrivacyPolicy,TermsAndConditions
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 # Register your models here.
@@ -49,3 +49,15 @@ class PasswordResetOTPAdmin(admin.ModelAdmin):
     ordering = ('created_at',)
 
 
+@admin.register(PrivacyPolicy)
+class PrivacyPolicyAdmin(admin.ModelAdmin):
+    list_display = ('id', 'created_at', 'updated_at')
+    ordering = ('created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(TermsAndConditions)
+class TermsAndConditionsAdmin(admin.ModelAdmin):
+    list_display = ('id', 'created_at', 'updated_at')
+    ordering = ('created_at',)
+    readonly_fields = ('created_at', 'updated_at')

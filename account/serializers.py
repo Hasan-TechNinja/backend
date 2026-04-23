@@ -4,6 +4,7 @@ from datetime import date
 from django.contrib.auth.models import update_last_login
 from django.contrib.auth import password_validation
 from .tasks import send_otp_email,send_welcome_email
+from  . models import PrivacyPolicy,TermsAndConditions
 
 
 #jwt 
@@ -324,7 +325,7 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Profile
-        fields = ['full_name', 'email', 'role','image','gender','date_of_birth']
+        fields = ['full_name', 'email', 'role','image','gender','date_of_birth', 'contact_number', 'skin_type']
         read_only_fields = ['email', 'role']
 
 
@@ -389,3 +390,13 @@ class UserUpdateSerializer(serializers.Serializer):
         return instance
 
 
+class PrivacyPolicySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PrivacyPolicy
+        fields = ['content']
+
+
+class TermsAndConditionsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TermsAndConditions
+        fields = ['content']    

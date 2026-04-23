@@ -4,8 +4,8 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated , AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from skincare.response import success_response
-from .serializers import RegisterSerializer,CustomTokenObtainPairSerializer,ChangePasswordSerializer,SendOTPSerializer,VerifyOTPSerializer,ResetPasswordSerializer,ProfileSerializer,UserUpdateSerializer
-from .models import Profile
+from .serializers import RegisterSerializer,CustomTokenObtainPairSerializer,ChangePasswordSerializer,SendOTPSerializer,VerifyOTPSerializer,ResetPasswordSerializer,ProfileSerializer,UserUpdateSerializer,PrivacyPolicySerializer,TermsAndConditionsSerializer
+from .models import Profile,PrivacyPolicy,TermsAndConditions
 
 
 #jwt
@@ -444,3 +444,38 @@ class ProfileAPIView(APIView):
             status_code=status.HTTP_200_OK
         )
 
+class PrivacyPolicyView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        privacy_policy = PrivacyPolicy.objects.first()
+        if not privacy_policy:
+            return success_response(
+                message="Privacy policy not found",
+                data={},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        return success_response(
+            message="Privacy policy fetched successfully",
+            data=PrivacyPolicySerializer(privacy_policy).data,
+            status_code=status.HTTP_200_OK
+        )
+
+
+
+class TermsAndConditionsView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        terms_and_conditions = TermsAndConditions.objects.first()
+        if not terms_and_conditions:
+            return success_response(
+                message="Terms and conditions not found",
+                data={},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        return success_response(
+            message="Terms and conditions fetched successfully",
+            data=TermsAndConditionsSerializer(terms_and_conditions).data,
+            status_code=status.HTTP_200_OK
+        )
