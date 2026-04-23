@@ -1,3 +1,4 @@
+from rest_framework.permissions import AllowAny
 from django.shortcuts import render, get_object_or_404
 from rest_framework.views import APIView
 from skincare.response import success_response
@@ -200,3 +201,39 @@ class BestProductApiView(APIView):
             status_code=status.HTTP_200_OK
         )
 
+
+class ProductView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        operation_summary="get all products",
+        operation_description="Endpoint to get all products. Only accessible by regular users.",
+        responses={
+            200: openapi.Response(
+                description="Product list fetched successfully",
+                schema=ProductListserializer(many=True)
+            ),
+        },
+        tags=['Product']
+    )
+    def get(self, request, *args, **kwargs):
+        products = Product.objects.all().order_by("created_at")
+        serializer = ProductListserializer(products, many=True, context={"request": request})
+        return success_response(
+            message="Product list fetched successfully",
+            data=serializer.data,
+            status_code=status.HTTP_200_OK
+        )
+
+
+class ProductsDetailsView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, pk, *args, **kwargs):
+        product = get_object_or_404(Product, pk=pk)
+        serializer = ProductListserializer(product, context={"request": request})
+        return success_response(
+            message="Product fetched successfully",
+            data=serializer.data,
+            status_code=status.HTTP_200_OK
+        )

@@ -24,7 +24,7 @@ class ProductAdmin(admin.ModelAdmin):
         "id", "category_name", "title", "sub_title", "skin_type",
         "short_description", "short_key_ingredients", "short_how_to_use",
         "short_key_benefits", "size", "price", "discount", "stock",
-        "video_preview", "created_at", "updated_at"
+        "created_at", "updated_at"
     )
     search_fields = ("title", "category__name",)
     list_filter = ("created_at", "category")
@@ -56,16 +56,16 @@ class ProductAdmin(admin.ModelAdmin):
        return obj.category.name if obj.category else ""
     category_name.short_description = "Category"
 
-    def video_preview(self, obj):
-        if obj.video:
-            return format_html(
-                '<video width="80" height="60" controls>'
-                '<source src="{}" type="video/mp4">'
-                '</video>',
-                obj.video.url
-            )
-        return "No Video"
-    video_preview.short_description = "Video"
+    # def video_preview(self, obj):
+    #     if obj.video:
+    #         return format_html(
+    #             '<video width="80" height="60" controls>'
+    #             '<source src="{}" type="video/mp4">'
+    #             '</video>',
+    #             obj.video.url
+    #         )
+    #     return "No Video"
+    # video_preview.short_description = "Video"
 
 
 @admin.register(ProductImage)

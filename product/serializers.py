@@ -18,7 +18,7 @@ class ProductCreateAndUpdateserializer(serializers.ModelSerializer):
         fields = [
             "category", "title", "sub_title", "skin_type", "description",
             "key_ingredients", "how_to_use", "key_benefits", "size", "price",
-            "discount", "stock", "is_available", "video", "images"
+            "discount", "stock", "images"
         ]
 
     def validate(self, attrs):
@@ -119,8 +119,8 @@ class ProductListserializer(serializers.ModelSerializer):
         fields = [
             "id", "category", "category_name", "title", "sub_title", "skin_type",
             "description", "key_ingredients", "how_to_use", "key_benefits", "size",
-            "sku", "price", "discount", "stock", "reserved_stock", "is_available",
-            "video", "images", "order_count", "created_at", "updated_at"
+            "price", "discount", "stock", "images", "order_count", "created_at",
+            "updated_at"
         ]
 
     def get_category_name(self, obj):
