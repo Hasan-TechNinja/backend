@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from account.models import User, Profile
+from account.models import User, Profile, PrivacyPolicy, TermsAndConditions
 
 class UserListSerializer(serializers.ModelSerializer):
     membership_id = serializers.SerializerMethodField()
@@ -14,3 +14,15 @@ class UserListSerializer(serializers.ModelSerializer):
 
     def get_membership_id(self, obj):
         return f"G{obj.id:04d}"
+
+
+class PrivacyPolicyListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PrivacyPolicy
+        fields = ['id', 'title', 'content', 'created_at', 'updated_at']
+
+
+class TermsAndConditionsListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TermsAndConditions
+        fields = ['id', 'title', 'content', 'created_at', 'updated_at']

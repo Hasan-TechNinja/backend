@@ -2,6 +2,8 @@ from django.urls import path
 from category.views import CategoryRetrieveUpdateDeleteApiView
 from product.views import ProductCreateAndListApiView,ProductRetrieveUpdateDestroyApiView
 from .views import UserListApiView, UserDeleteApiView, CategoryListCreateApiView
+from . import views
+
 
 urlpatterns = [
     # Members
@@ -15,4 +17,12 @@ urlpatterns = [
     # Product
     path("product/", ProductCreateAndListApiView.as_view(), name="product-create-and-list"),
     path('products/<int:pk>/', ProductRetrieveUpdateDestroyApiView.as_view(), name='product-detail'),
+
+    # Privacy Policy
+    path("privacy-policy/", views.PrivacyPolicyListCreateApiView.as_view(), name="privacy-policy-create-and-list"),
+    path("privacy-policy/<int:pk>/", views.PrivacyPolicyListCreateApiView.as_view(), name="privacy-policy-detail"),
+
+    # Terms and Conditions
+    path("terms-and-conditions/", views.TermsAndConditionsListCreateApiView.as_view(), name="terms-and-conditions-create-and-list"),
+    path("terms-and-conditions/<int:pk>/", views.TermsAndConditionsListCreateApiView.as_view(), name="terms-and-conditions-detail"),
 ]
