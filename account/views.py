@@ -2,10 +2,11 @@ from django.shortcuts import render
 from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated , AllowAny
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from skincare.response import success_response
-from .serializers import RegisterSerializer,CustomTokenObtainPairSerializer,ChangePasswordSerializer,SendOTPSerializer,VerifyOTPSerializer,ResetPasswordSerializer,ProfileSerializer,UserUpdateSerializer,PrivacyPolicySerializer,TermsAndConditionsSerializer
+from .serializers import RegisterSerializer,CustomTokenObtainPairSerializer,ChangePasswordSerializer,SendOTPSerializer,VerifyOTPSerializer,RegisterVerifyOTPSerializer,ResetPasswordSerializer,ProfileSerializer,UserUpdateSerializer,PrivacyPolicySerializer,TermsAndConditionsSerializer
 from .models import Profile,PrivacyPolicy,TermsAndConditions
+from .tasks import send_welcome_email
 
 
 #jwt
@@ -22,7 +23,7 @@ from drf_yasg import openapi
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
-    parser_classes = [MultiPartParser , FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @swagger_auto_schema(
         operation_description="Register a new user and return JWT tokens",
@@ -48,23 +49,7 @@ class RegisterView(APIView):
                         "data": openapi.Schema(
                             type=openapi.TYPE_OBJECT,
                             properties={
-                                "access_token": openapi.Schema(type=openapi.TYPE_STRING),
-                                "refresh_token": openapi.Schema(type=openapi.TYPE_STRING),
-                                "user": openapi.Schema(
-                                    type=openapi.TYPE_OBJECT,
-                                    properties={
-                                        "id": openapi.Schema(type=openapi.TYPE_INTEGER),
-                                        "email": openapi.Schema(type=openapi.TYPE_STRING),
-                                        "membership_Id": openapi.Schema(type=openapi.TYPE_STRING),
-                                        "role": openapi.Schema(type=openapi.TYPE_STRING),
-                                        "full_name": openapi.Schema(type=openapi.TYPE_STRING),
-                                        "gender": openapi.Schema(type=openapi.TYPE_STRING),
-                                        "date_of_birth": openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATE),
-                                        "contact_number": openapi.Schema(type=openapi.TYPE_STRING),
-                                        "skin_type": openapi.Schema(type=openapi.TYPE_STRING),
-                                        "image": openapi.Schema(type=openapi.TYPE_STRING),
-                                    }
-                                ),
+                                "email": openapi.Schema(type=openapi.TYPE_STRING),
                             },
                         ),
                     },
@@ -79,41 +64,88 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data = request.data,context={"request": request})
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+        
+        data = {
+            "email": user.email,
+        }
+        return success_response(
+            message="User registered successfully. Please verify your OTP to activate your account.",
+            data=data,
+            status_code=status.HTTP_201_CREATED
+        )
+    
+    
+
+
+class RegisterVerifyOTPView(APIView):
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    @swagger_auto_schema(
+        operation_description="Verify OTP for user registration and activate user",
+        request_body=RegisterVerifyOTPSerializer,
+        tags=["Authentication"],
+        responses={
+            200: openapi.Response(
+                description="User activated successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "success": openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                        "data": openapi.Schema(type=openapi.TYPE_OBJECT),
+                    },
+                ),
+            )
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        lean = request.query_params.get('lean', 'EN').upper()
+        serializer = RegisterVerifyOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        user = serializer.validated_data['user']
+        user.is_active = True
+        user.save()
+        
+        # Mark OTP as verified
+        otp_obj = serializer.validated_data['otp_obj']
+        otp_obj.is_verified = True
+        otp_obj.save()
+        
+        # Send welcome email now
+        try:
+            send_welcome_email.delay(user.id, lean)
+        except Exception as e:
+            print(f"Error sending welcome email: {e}")
+        
+        # Generate tokens
         profile = user.profile
         refresh = RefreshToken.for_user(user)
         refresh['id'] = user.id
         refresh['email'] = user.email
         refresh['role'] = user.role
         refresh['full_name'] = profile.full_name if profile.full_name else ""
-        access_token = str(refresh.access_token)
-
-        data={
-                'refresh': str(refresh), 
-                'access': access_token,
-                'user': {
-                    'id' : user.id,
-                    'email': user.email,
-                    "membership_Id":user.username,
-                    'role': user.role,
-                    'full_name': profile.full_name if profile.full_name else "",
-                    'gender': profile.gender if profile.gender else "",
-                    'date_of_birth': profile.date_of_birth if profile.date_of_birth else None,
-                    "contact_number":profile.contact_number if profile.contact_number else None,
-                    "skin_type":profile.skin_type if profile.skin_type else None,
-                    'image': profile.image.url if profile.image else "",
-                }
-            }
-        return success_response(message="User registerd successfully",data=data,status_code=status.HTTP_201_CREATED)
-    
-    
-
-
-#Token view
+        
+        data = {
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+            'user': ProfileSerializer(user.profile, context={'request': request}).data
+        }
+        
+        # Ensure membership_Id is included as per Swagger (it comes from user.username)
+        data['user']['membership_Id'] = user.username
+        
+        return success_response(
+            message="Account activated successfully.",
+            data=data,
+            status_code=status.HTTP_200_OK
+        )
 
 class LoginAPIView(TokenObtainPairView):
     permission_classes = [AllowAny]
     serializer_class = CustomTokenObtainPairSerializer
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @swagger_auto_schema(
         operation_description="Authenticate a user with email and password, returning JWT access and refresh tokens along with user details.",
@@ -170,7 +202,7 @@ class LoginAPIView(TokenObtainPairView):
 
 class CustomTokenRefresView(TokenRefreshView):
     permission_classes = [AllowAny]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @swagger_auto_schema(
         operation_description="Refresh JWT access token using a valid refresh token.",
@@ -197,7 +229,7 @@ class CustomTokenRefresView(TokenRefreshView):
 
 class ChangePasswordApiView(APIView):
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser,FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @swagger_auto_schema(
         operation_description="Change the current user's password using old and new password.",
@@ -248,7 +280,7 @@ class ChangePasswordApiView(APIView):
 
 class ForgetPasswordSendOTP(APIView):
     permission_classes = [AllowAny]
-    parser_classes = [MultiPartParser , FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @swagger_auto_schema(
         operation_description="Send OTP to user email for password reset",
@@ -291,7 +323,7 @@ class ForgetPasswordSendOTP(APIView):
 
 class ForgetPasswordVerifyOTP(APIView):
     permission_classes = [AllowAny]
-    parser_classes = [MultiPartParser , FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @swagger_auto_schema(
         operation_description="Verify the OTP sent to the user's email",
@@ -334,7 +366,7 @@ class ForgetPasswordVerifyOTP(APIView):
 
 class ForgetPasswordReset(APIView):
     permission_classes = [AllowAny]
-    parser_classes = [MultiPartParser , FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @swagger_auto_schema(
         operation_description="Reset the user's password after OTP verification",

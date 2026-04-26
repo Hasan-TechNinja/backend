@@ -1,5 +1,6 @@
 from django.urls import path
-from .views import RegisterView,LoginAPIView,CustomTokenRefresView,ChangePasswordApiView,ForgetPasswordSendOTP, ForgetPasswordVerifyOTP, ForgetPasswordReset ,ProfileAPIView,PrivacyPolicyView,TermsAndConditionsView
+from .views import RegisterView,RegisterVerifyOTPView,LoginAPIView,CustomTokenRefresView,ChangePasswordApiView,ForgetPasswordSendOTP, ForgetPasswordVerifyOTP, ForgetPasswordReset ,ProfileAPIView,PrivacyPolicyView,TermsAndConditionsView
+from . import views
 
 
 
@@ -8,6 +9,7 @@ urlpatterns = [
 
     #User Authentication Url
     path('register/', RegisterView.as_view(), name='register'),
+    path('verify-registration/', views.RegisterVerifyOTPView.as_view(), name='verify-registration'),
     path('login/',LoginAPIView.as_view(),name='login'),
     path('refresh/',CustomTokenRefresView.as_view(),name='token_refresh'),
     path('password-change/',ChangePasswordApiView.as_view(),name='change-password'),
@@ -22,6 +24,8 @@ urlpatterns = [
 
     #privacy policy and terms and conditions
     path('privacy-policy/', PrivacyPolicyView.as_view(), name='privacy-policy'),
+    path('privacy-policy', PrivacyPolicyView.as_view()),
     path('terms-and-conditions/', TermsAndConditionsView.as_view(), name='terms-and-conditions'),
+    path('terms-and-conditions', TermsAndConditionsView.as_view()),
 
 ]

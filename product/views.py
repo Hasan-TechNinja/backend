@@ -3,7 +3,7 @@ from django.shortcuts import render, get_object_or_404
 from rest_framework.views import APIView
 from skincare.response import success_response
 from .models import Product, ProductImage
-from .serializers import ProductCreateAndUpdateserializer, ProductListserializer
+from .serializers import ProductCreateAndUpdateserializer, ProductListserializer, ProductDetailsSerializer
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 from account.permissions import IsAdminRole, IsUserRole
@@ -119,13 +119,14 @@ class ProductRetrieveUpdateDestroyApiView(APIView):
         },
         tags=['Product']
     )
+
     def delete(self, request, pk, *args, **kwargs):
         product = get_object_or_404(Product, pk=pk)
         product.delete()
         return success_response(
             message="Product deleted successfully",
             data=None,
-            status_code=status.HTTP_204_NO_CONTENT
+            status_code=status.HTTP_200_OK
         )
 
 
@@ -179,7 +180,7 @@ class ProductRetrieveApiView(APIView):
 
 
 class BestProductApiView(APIView):
-    permission_classes = [IsUserRole]
+    permission_classes = [AllowAny]
 
     @swagger_auto_schema(
         operation_summary="get best products",
@@ -229,9 +230,22 @@ class ProductView(APIView):
 class ProductsDetailsView(APIView):
     permission_classes = [AllowAny]
 
+    @swagger_auto_schema(
+        operation_summary="get a product details",
+        operation_description="Endpoint to get a product details with related products. Accessible by all users.",
+        responses={
+            200: openapi.Response(
+                description="Product details fetched successfully",
+                schema=ProductDetailsSerializer()
+            ),
+            404: openapi.Response(description="Product not found")
+        },
+        tags=['Product']
+    )
+
     def get(self, request, pk, *args, **kwargs):
         product = get_object_or_404(Product, pk=pk)
-        serializer = ProductListserializer(product, context={"request": request})
+        serializer = ProductDetailsSerializer(product, context={"request": request})
         return success_response(
             message="Product fetched successfully",
             data=serializer.data,

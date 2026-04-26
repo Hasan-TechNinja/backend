@@ -45,6 +45,7 @@ urlpatterns = [
     path("userapi/",include("userapi.urls")),
     path("productapi/",include("product.urls")),
     path("accountapi/",include("account.urls")),
+    path("shop/", include("shop.urls")),
 
 
 

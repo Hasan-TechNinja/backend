@@ -125,3 +125,33 @@ class ProductListserializer(serializers.ModelSerializer):
 
     def get_category_name(self, obj):
         return obj.category.name if obj.category else ""
+
+
+class ProductDetailsSerializer(ProductListserializer):
+    related_products = serializers.SerializerMethodField()
+
+    class Meta(ProductListserializer.Meta):
+        fields = ProductListserializer.Meta.fields + ["related_products"]
+
+    def get_related_products(self, obj):
+        # Fetch up to 10 related products from the same category, excluding the current product
+        related = Product.objects.filter(category=obj.category).exclude(id=obj.id).order_by("-order_count")[:10]
+        return ProductListserializer(related, many=True, context=self.context).data
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ["id", "name", "image", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        name = attrs.get('name')
+        image = attrs.get('image')
+
+        if name and len(name) < 3:
+            raise serializers.ValidationError({"name": "Name must be at least 3 characters long"})
+        
+        if image and image.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError({"image": "Image must be less than 5MB"})
+        
+        return attrs

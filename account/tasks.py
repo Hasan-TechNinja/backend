@@ -1,17 +1,19 @@
 from celery import shared_task
 from django.core.mail import send_mail
 from django.conf import settings
-from .models import PasswordReserOTP, User
+from .models import User, Profile, PasswordResetOTP, RegisterOTP
+from django.core.mail import EmailMultiAlternatives
 from datetime import timedelta
 from django.utils import timezone
-from .models import User, Profile
-from django.core.mail import EmailMultiAlternatives
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 
 @shared_task
 def send_otp_email(user_id, otp):
-    print("TASK STARTED")
+    logger.info(f"Preparing to send OTP email to user {user_id}. OTP: {otp}")
     try:
         user = User.objects.get(id=user_id)
         send_mail(
@@ -19,11 +21,16 @@ def send_otp_email(user_id, otp):
             message=f"Hello {user.username}, your OTP is: {otp}",
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[user.email],
+            fail_silently=False,
         )
-        print("EMAIL SENT")
+        logger.info(f"OTP email sent successfully to {user.email}")
         return f"OTP sent to {user.email}"
     except User.DoesNotExist:
+        logger.error(f"User with id {user_id} not found for OTP email")
         return "User not found"
+    except Exception as e:
+        logger.error(f"Failed to send OTP email to user {user_id}: {str(e)}")
+        return f"Error: {str(e)}"
     
 
 
@@ -131,9 +138,9 @@ def send_welcome_email(user_id, lean="EN"):
 
 @shared_task
 def cleanup_expired_otps():
-    expired = PasswordReserOTP.objects.filter(
+    expired = PasswordResetOTP.objects.filter(
         is_verified=False,
-        created_at__lt=timezone.now() - timedelta(minutes=5)
+        created_at__lt=timezone.now() - timedelta(minutes=3)
     )
     count = expired.count()
     expired.delete()

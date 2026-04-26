@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from account.models import User,Profile,PasswordReserOTP
+from account.models import User,Profile,PasswordResetOTP,RegisterOTP
 from datetime import date
 from django.contrib.auth.models import update_last_login
 from django.contrib.auth import password_validation
@@ -43,8 +43,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         image = attrs.get("image")
 
 
-        if User.objects.filter(email = email).exists():
-            raise serializers.ValidationError({"email" : "Email already exists."})
+        user = User.objects.filter(email=email).first()
+        if user and user.is_active:
+            raise serializers.ValidationError({"email": "Email already exists."})
         
         
         if password and len(password) < 6:
@@ -106,26 +107,46 @@ class RegisterSerializer(serializers.ModelSerializer):
         lean = request.query_params.get('lean', 'EN').upper() if request else "EN"
 
 
-        email = validated_data.pop('email',None)
-        password = validated_data.pop('password',None)
+        email = validated_data.pop('email', None)
+        password = validated_data.pop('password', None)
 
-        user = User.objects.create_user(
-            email = email,
-            username=User().generate_unique_username(),
-            password = password
-        )
+        user = User.objects.filter(email=email).first()
+        
+        if user:
+            # Update existing inactive user
+            user.set_password(password)
+            user.save()
+        else:
+            # Create new user
+            user = User.objects.create_user(
+                email=email,
+                username=User().generate_unique_username(),
+                password=password,
+                is_active=False
+            )
 
-        profile = Profile.objects.create(
-            user=user,
-            full_name=full_name,
-            gender=gender,
-            contact_number=contact_number,
-            skin_type=skin_type,
-            date_of_birth=date_of_birth,
-            image=image
-        )
+        profile, created = Profile.objects.get_or_create(user=user)
+        profile.full_name = full_name
+        profile.gender = gender
+        profile.contact_number = contact_number
+        profile.skin_type = skin_type
+        profile.date_of_birth = date_of_birth
+        if image:
+            profile.image = image
+        profile.save()
 
-        send_welcome_email.delay(user.id, lean)
+        # Delete previous OTPs for this user
+        RegisterOTP.objects.filter(user=user).delete()
+
+        # Generate OTP
+        otp_obj = RegisterOTP.objects.create(user=user)
+        try:
+            send_otp_email.delay(user.id, otp_obj.otp)
+        except Exception as e:
+            print(f"Error sending OTP email: {e}")
+            # Fallback or just log it - but don't fail the whole registration
+            # In a production app, you might want to handle this more robustly
+            pass
 
         return user
 
@@ -153,6 +174,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         
         if not user.check_password(password):
             raise serializers.ValidationError({"password": "Invalid Password"})
+
+        if not user.is_active:
+            raise serializers.ValidationError({"email": "Your account is not activated. Please verify your OTP."})
 
         data = super().validate({'email': user.email, 'password': password})
 
@@ -226,17 +250,23 @@ class SendOTPSerializer(serializers.Serializer):
     def save(self):
         email = self.validated_data["email"]
         user = User.objects.get(email=email)
-        otp_obj = PasswordReserOTP.objects.create(user=user)   
-        send_otp_email.delay(user.id, otp_obj.otp)    
+        
+        # Delete previous reset OTPs
+        PasswordResetOTP.objects.filter(user=user).delete()
+        
+        otp_obj = PasswordResetOTP.objects.create(user=user)   
+        try:
+            send_otp_email.delay(user.id, otp_obj.otp)
+        except Exception as e:
+            print(f"Error sending password reset OTP: {e}")
         return otp_obj
 
 
+#Register Verify OTP
 
-#Verify OTP
-
-class VerifyOTPSerializer(serializers.Serializer):
+class RegisterVerifyOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    otp = serializers.CharField(max_length=4)
+    otp = serializers.CharField(max_length=6)
 
     def validate(self, attrs):
         email = attrs.get("email")
@@ -248,12 +278,51 @@ class VerifyOTPSerializer(serializers.Serializer):
             raise serializers.ValidationError({"email": "User not found."})
 
         try:
-            otp_obj = PasswordReserOTP.objects.get(
+            otp_obj = RegisterOTP.objects.get(
                 user=user,
                 otp=otp,
                 is_verified=False
             )
-        except PasswordReserOTP.DoesNotExist:
+        except RegisterOTP.DoesNotExist:
+            raise serializers.ValidationError({"otp": "Invalid OTP."})
+
+        if otp_obj.is_expired():
+            raise serializers.ValidationError({"otp": "OTP expired."})
+
+        attrs["user"] = user
+        attrs["otp_obj"] = otp_obj
+        return attrs
+    
+    def save(self):
+        otp_obj = self.validated_data["otp_obj"]
+        otp_obj.is_verified = True
+        otp_obj.save()
+        return otp_obj
+
+
+
+#Verify OTP
+
+class VerifyOTPSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6)
+
+    def validate(self, attrs):
+        email = attrs.get("email")
+        otp = attrs.get("otp")
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            raise serializers.ValidationError({"email": "User not found."})
+
+        try:
+            otp_obj = PasswordResetOTP.objects.get(
+                user=user,
+                otp=otp,
+                is_verified=False
+            )
+        except PasswordResetOTP.DoesNotExist:
             raise serializers.ValidationError({"otp": "Invalid OTP."})
 
         if otp_obj.is_expired():
@@ -293,7 +362,7 @@ class ResetPasswordSerializer(serializers.Serializer):
         except User.DoesNotExist:
             raise serializers.ValidationError({"email": "User not found."})
         
-        otp_obj = PasswordReserOTP.objects.filter(
+        otp_obj = PasswordResetOTP.objects.filter(
             user=user,
             is_verified=True
         ).first()

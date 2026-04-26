@@ -47,18 +47,36 @@ class Profile(models.Model):
 
 
 
-class PasswordReserOTP(models.Model):
+class PasswordResetOTP(models.Model):
     user = models.ForeignKey(User,on_delete=models.CASCADE)
-    otp = models.CharField(max_length=4)
+    otp = models.CharField(max_length=6)
     created_at = models.DateTimeField(auto_now_add=True)
     is_verified = models.BooleanField(default=False)
 
     def save(self,*args, **kwargs):
         if not self.otp:
-            self.otp = str(random.randint(1000,9999))
+            self.otp = str(random.randint(100000, 999999))
         super().save(*args, **kwargs)
 
     
+    def is_expired(self):
+        return timezone.now() > self.created_at + timedelta(minutes=3)
+
+    def __str__(self):
+        return f"{self.user.email} - {self.otp}"
+
+
+class RegisterOTP(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    otp = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_verified = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        if not self.otp:
+            self.otp = str(random.randint(100000, 999999))
+        super().save(*args, **kwargs)
+
     def is_expired(self):
         return timezone.now() > self.created_at + timedelta(minutes=5)
 

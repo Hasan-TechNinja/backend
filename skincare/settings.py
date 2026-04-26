@@ -25,21 +25,23 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv("SECRET_KEY")
+# SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = 'django-insecure-g@yk@a7b*_z#5_bqmc5d8^$_1*^)&2ihuucu%ajirs73rqxtrc'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["api.glowmi.net","localhost", "10.10.13.61"]
+ALLOWED_HOSTS = ["api.glowmi.net","localhost", "127.0.0.1", "10.10.13.61", "intensely-optimal-unicorn.ngrok-free.app", "*", ".trycloudflare.com"]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://api.glowmi.net",
     "https://api.glowmi.net/",
-    # add more if needed, e.g.
-    # "https://www.api.glowmi.net",
+    "https://intensely-optimal-unicorn.ngrok-free.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://*.trycloudflare.com",
+    "http://10.10.13.61"
 ]
-
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -62,13 +64,22 @@ INSTALLED_APPS = [
     'adminapi',
     'userapi',
     'notifications',
-    'product'
+    'product',
+    'shop'
 ]
 
+CORS_ALLOWED_ORIGINS = [
+    "https://api.glowmi.net",
+    "https://intensely-optimal-unicorn.ngrok-free.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+CORS_ALLOW_ALL_ORIGINS = True
+
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    'corsheaders.middleware.CorsMiddleware',
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -162,7 +173,29 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 AUTH_USER_MODEL = 'account.User'
 
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
+
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]
 
 
 REST_FRAMEWORK = {
@@ -237,8 +270,10 @@ DEFAULT_FROM_EMAIL = os.getenv("EMAIL")
 
 
 
-CELERY_BROKER_URL = "redis://redis:6379/0"
-CELERY_RESULT_BACKEND = "redis://redis:6379/0"
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
+CELERY_BROKER_CONNECTION_TIMEOUT = 2
+CELERY_BROKER_CONNECTION_RETRY_ON_START = True
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -276,3 +311,27 @@ DB_NAME = os.getenv('DB_NAME')
 
 GIMINIAPI_KEY = os.getenv('GIMINIAPI_KEY')
 
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+}
+
+# Set to True for testing without running a Celery worker
+CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_ALWAYS_EAGER', 'False') == 'True'
