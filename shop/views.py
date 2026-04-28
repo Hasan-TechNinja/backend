@@ -6,18 +6,20 @@ from django.shortcuts import get_object_or_404
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 import re
+from asgiref.sync import async_to_sync
 from django.db import transaction
 from .models import Cart, CartItem, Order, OrderItem, PaymentTransaction
 from .serializers import (
     CartSerializer, CartItemSerializer, 
-    OrderSerializer, CheckoutRequestSerializer
+    OrderSerializer, CheckoutRequestSerializer,
+    AIRoutineRequestSerializer
 )
 from .services import HyperPayService
 from .tasks import sync_order_to_omniful
 from django.conf import settings
 from product.models import Product
 from skincare.response import success_response
-
+from . import ai_engine
 class CartView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -303,3 +305,69 @@ class PaymentCallbackView(APIView):
                 "message": transaction_obj.result_description,
                 "code": transaction_obj.result_code
             }, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+class GenerateAIRoutineView(APIView):
+    @swagger_auto_schema(
+        operation_summary="Generate AI Skin Routine",
+        operation_description="Submit user skin profile to get an AI generated routine.",
+        request_body=AIRoutineRequestSerializer,
+        tags=['Shop']
+    )
+    def post(self, request):
+        serializer = AIRoutineRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        data = serializer.validated_data
+        
+        user_profile = {
+            "language": "en",
+            "is_pregnant": False, 
+            "skin_type": data.get("skin_type"),
+            "concerns": data.get("concerns", []),
+            "age": data.get("age"),
+            "allergies": [], 
+        }
+        
+        if data.get("additional_details"):
+            user_profile["additional_details"] = data.get("additional_details")
+
+        products = Product.objects.all()
+        product_catalog = []
+        for p in products:
+            image_url = ""
+            if p.images.exists() and p.images.first().image:
+                image_url = request.build_absolute_uri(p.images.first().image.url)
+            
+            product_catalog.append({
+                "id": p.id,
+                "name": p.title,
+                "name_ar": p.title,
+                "type": p.category.name if p.category else "Skincare",
+                "ingredients": p.key_ingredients or "",
+                "benefits": p.key_benefits or "",
+                "safety": "",
+                "price": float(p.price) if p.price else 0.0,
+                "image_url": image_url,
+                "product_url": f"/product/{p.id}",
+            })
+            
+        image_bytes = None
+        mime_type = None
+        photo = data.get("photo") or request.FILES.get("photo")
+        if photo:
+            image_bytes = photo.read()
+            mime_type = photo.content_type
+            
+        routine = async_to_sync(ai_engine.generate_routine)(
+            user_profile, 
+            product_catalog,
+            image_bytes=image_bytes,
+            mime_type=mime_type
+        )
+        
+        return success_response(
+            message="Routine generated successfully",
+            data=routine,
+            status_code=status.HTTP_200_OK
+        )

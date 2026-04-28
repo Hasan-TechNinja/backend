@@ -61,3 +61,14 @@ class CheckoutRequestSerializer(serializers.Serializer):
     state = serializers.CharField(max_length=100, required=False, allow_blank=True)
     postal_code = serializers.CharField(max_length=20)
     country = serializers.CharField(max_length=100, default='SA')
+
+class AIRoutineRequestSerializer(serializers.Serializer):
+    skin_type = serializers.CharField(max_length=50)
+    age = serializers.IntegerField()
+    concerns = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False
+    )
+    additional_details = serializers.CharField(required=False, allow_blank=True)
+    photo = serializers.ImageField(required=False, allow_null=True)
+
