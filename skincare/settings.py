@@ -335,3 +335,18 @@ LOGGING = {
 
 # Set to True for testing without running a Celery worker
 CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_ALWAYS_EAGER', 'False') == 'True'
+
+# HyperPay Settings
+HYPERPAY_BASE_URL = os.getenv('HYPERPAY_BASE_URL', 'https://test.oppwa.com')
+HYPERPAY_BEARER_TOKEN = os.getenv('HYPERPAY_BEARER_TOKEN', '')
+HYPERPAY_ENTITY_IDS = {
+    'VISA': os.getenv('HYPERPAY_ENTITY_ID_VISA'),
+    'MASTER': os.getenv('HYPERPAY_ENTITY_ID_MASTER'),
+    'MADA': os.getenv('HYPERPAY_ENTITY_ID_MADA'),
+    'APPLEPAY': os.getenv('HYPERPAY_ENTITY_ID_APPLEPAY'),
+    'TABBY': os.getenv('HYPERPAY_ENTITY_ID_TABBY'),
+    'TAMARA': os.getenv('HYPERPAY_ENTITY_ID_TAMARA'),
+}
+
+# Omniful Settings
+OMNIFUL_API_KEY = os.getenv('OMNIFUL_API_KEY', '')

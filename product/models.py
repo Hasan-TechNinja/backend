@@ -17,7 +17,7 @@ class Product(models.Model):
     title = models.CharField(max_length=255)
     sub_title = models.CharField(max_length=255, blank=True, null=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
-    # sku = models.CharField(max_length=50, unique=True, blank=True, null=True)
+    sku = models.CharField(max_length=50, unique=True, blank=True, null=True)
     size = models.CharField(max_length=100, blank=True, null=True)
     discount = models.DecimalField(max_digits=5,decimal_places=2,default=0.00,help_text="Discount percentage or amount")
     category = models.ForeignKey(Category,on_delete=models.CASCADE,related_name='products')

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Cart, CartItem
+from .models import Cart, CartItem, Order, OrderItem
 from product.models import Product
 from product.serializers import ProductListserializer
 
@@ -27,3 +27,37 @@ class CartSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cart
         fields = ['id', 'items', 'total_price', 'updated_at']
+
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.ReadOnlyField(source='product.title')
+
+    class Meta:
+        model = OrderItem
+        fields = ['id', 'product', 'product_name', 'quantity', 'price']
+
+class OrderSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'user', 'total_amount', 'status', 'items',
+            'first_name', 'last_name', 'email', 'phone',
+            'address_line1', 'address_line2', 'city', 'state',
+            'postal_code', 'country', 'created_at'
+        ]
+        read_only_fields = ['user', 'total_amount', 'status']
+
+class CheckoutRequestSerializer(serializers.Serializer):
+    payment_brand = serializers.ChoiceField(choices=['VISA', 'MASTER', 'MADA', 'APPLEPAY', 'TABBY', 'TAMARA'])
+    first_name = serializers.CharField(max_length=100)
+    last_name = serializers.CharField(max_length=100)
+    email = serializers.EmailField()
+    phone = serializers.CharField(max_length=20)
+    address_line1 = serializers.CharField(max_length=255)
+    address_line2 = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    city = serializers.CharField(max_length=100)
+    state = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    postal_code = serializers.CharField(max_length=20)
+    country = serializers.CharField(max_length=100, default='SA')
