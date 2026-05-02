@@ -93,3 +93,23 @@ class PaymentTransaction(models.Model):
 
     def __str__(self):
         return f"Transaction {self.checkout_id} for Order {self.order.id}"
+
+
+class ChatSession(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='chat_session')
+    summary_anchor = models.TextField(default="", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"ChatSession for {self.user.email}"
+
+class ChatMessage(models.Model):
+    session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='messages')
+    role = models.CharField(max_length=20) # 'user' or 'assistant'
+    content = models.TextField()
+    is_for_friend = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.role} message in {self.session}"
