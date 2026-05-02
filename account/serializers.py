@@ -46,10 +46,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         user = User.objects.filter(email=email).first()
         if user and user.is_active:
             raise serializers.ValidationError({"email": "Email already exists."})
-        
-        
-        if password and len(password) < 6:
-            raise serializers.ValidationError({"password": "Password must be at least 6 characters long."})
+            
+        if password:
+            password_validation.validate_password(password=password, user=User(email=email))
         
         if full_name and len(full_name) < 2:
             raise serializers.ValidationError({"full_name": "Full name must be at least 2 characters."})
@@ -224,7 +223,8 @@ class ChangePasswordSerializer(serializers.Serializer):
         return value
     
     def validate_new_password(self, value):
-        password_validation.validate_password(value)
+        user = self.context.get('request').user if self.context.get('request') else None
+        password_validation.validate_password(value, user=user)
         return value
     
     def save(self, **kwargs):
@@ -354,8 +354,9 @@ class ResetPasswordSerializer(serializers.Serializer):
         email = attrs.get("email")
         new_password = attrs.get("new_password")
 
-        if not new_password or len(new_password) < 6:
-            raise serializers.ValidationError({"new_password": "Password must be at least 6 characters long."})
+        if not new_password:
+            raise serializers.ValidationError({"new_password": "New password is required."})
+        # Note: password_validation.validate_password is also called in validate_new_password()
 
         try:
             user = User.objects.get(email=email)

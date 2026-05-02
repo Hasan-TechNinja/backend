@@ -1,5 +1,6 @@
 from rest_framework.permissions import AllowAny
 from django.shortcuts import render, get_object_or_404
+from django.db.models import Q
 from rest_framework.views import APIView
 from skincare.response import success_response
 from .models import Product, ProductImage
@@ -208,7 +209,16 @@ class ProductView(APIView):
 
     @swagger_auto_schema(
         operation_summary="get all products",
-        operation_description="Endpoint to get all products. Only accessible by regular users.",
+        operation_description="Endpoint to get all products with pagination, searching, and filtering.",
+        manual_parameters=[
+            openapi.Parameter('search', openapi.IN_QUERY, description="Search by title, subtitle, description, ingredients, benefits", type=openapi.TYPE_STRING),
+            openapi.Parameter('category', openapi.IN_QUERY, description="Filter by category ID", type=openapi.TYPE_INTEGER),
+            openapi.Parameter('skin_type', openapi.IN_QUERY, description="Filter by skin type (oily, dry, normal, combination, sensitive)", type=openapi.TYPE_STRING),
+            openapi.Parameter('min_price', openapi.IN_QUERY, description="Filter by minimum price", type=openapi.TYPE_NUMBER),
+            openapi.Parameter('max_price', openapi.IN_QUERY, description="Filter by maximum price", type=openapi.TYPE_NUMBER),
+            openapi.Parameter('page', openapi.IN_QUERY, description="Page number", type=openapi.TYPE_INTEGER),
+            openapi.Parameter('page_size', openapi.IN_QUERY, description="Number of items per page", type=openapi.TYPE_INTEGER),
+        ],
         responses={
             200: openapi.Response(
                 description="Product list fetched successfully",
@@ -218,8 +228,68 @@ class ProductView(APIView):
         tags=['Product']
     )
     def get(self, request, *args, **kwargs):
-        products = Product.objects.all().order_by("created_at")
-        serializer = ProductListserializer(products, many=True, context={"request": request})
+        queryset = Product.objects.all().order_by("created_at")
+        
+        # Searching
+        search_query = request.query_params.get('search', None)
+        if search_query:
+            queryset = queryset.filter(
+                Q(title__icontains=search_query) |
+                Q(sub_title__icontains=search_query) |
+                Q(description__icontains=search_query) |
+                Q(key_ingredients__icontains=search_query) |
+                Q(key_benefits__icontains=search_query)
+            )
+            
+        # Filtering
+        category_id = request.query_params.get('category', None)
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+            
+        skin_type = request.query_params.get('skin_type', None)
+        if skin_type:
+            queryset = queryset.filter(skin_type=skin_type)
+            
+        min_price = request.query_params.get('min_price', None)
+        if min_price:
+            queryset = queryset.filter(price__gte=min_price)
+            
+        max_price = request.query_params.get('max_price', None)
+        if max_price:
+            queryset = queryset.filter(price__lte=max_price)
+            
+        # Pagination
+        from rest_framework.pagination import PageNumberPagination
+        paginator = PageNumberPagination()
+        
+        # Set page size from settings or query param
+        from django.conf import settings
+        default_page_size = getattr(settings, 'REST_FRAMEWORK', {}).get('PAGE_SIZE', 10)
+        paginator.page_size = default_page_size
+        
+        page_size = request.query_params.get('page_size', None)
+        if page_size:
+            try:
+                paginator.page_size = int(page_size)
+            except ValueError:
+                pass
+                
+        page = paginator.paginate_queryset(queryset, request)
+        if page is not None:
+            serializer = ProductListserializer(page, many=True, context={"request": request})
+            paginated_data = {
+                "count": paginator.page.paginator.count,
+                "next": paginator.get_next_link(),
+                "previous": paginator.get_previous_link(),
+                "results": serializer.data
+            }
+            return success_response(
+                message="Product list fetched successfully",
+                data=paginated_data,
+                status_code=status.HTTP_200_OK
+            )
+            
+        serializer = ProductListserializer(queryset, many=True, context={"request": request})
         return success_response(
             message="Product list fetched successfully",
             data=serializer.data,
