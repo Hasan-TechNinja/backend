@@ -6,6 +6,7 @@ from .serializers import CategoryCreateandUpdateserializer, Categorylistserializ
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 from account.permissions import IsAdminRole, IsUserRole
+from rest_framework import permissions
 
 # swagger 
 from drf_yasg.utils import swagger_auto_schema
@@ -135,8 +136,9 @@ class CategoryRetrieveUpdateDeleteApiView(APIView):
         )
 
 
-class CategoryListApiview(APIView):
-    permission_classes = [IsUserRole]
+class CategoryListApiview(APIView): 
+    # permission_classes = [IsUserRole]
+    permission_classes = [permissions.AllowAny]
 
     @swagger_auto_schema(
         operation_summary="Get all categories",

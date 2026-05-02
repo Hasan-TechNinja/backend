@@ -15,9 +15,11 @@ plus a future intake form) and the `product_catalog` list (serialized from
 
 Public API
 ----------
-    async generate_routine(user_profile, product_catalog) -> dict
-    async chat_assistant(user_input, summary_anchor, sliding_window,
-                         product_catalog, user_profile) -> str
+    async generate_routine(user_profile, product_catalog,
+                           user_image_b64=None) -> dict
+    async chat_assistant(user_input, chat_history, summary_anchor,
+                         user_profile, product_catalog,
+                         user_image_b64=None) -> dict
     async update_summary_anchor(old_anchor, new_messages,
                                 language="en") -> str
 
@@ -59,11 +61,14 @@ Expected `product_catalog` item shape
     price        : float
     image_url    : str
     product_url  : str
+    how_to_use   : str | None             # Optional: exact application instructions
+    size         : str | None             # Optional: e.g. "50ml"
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import re
@@ -92,7 +97,8 @@ load_dotenv()
 PRIMARY_MODEL: str = "gemini-3-flash-preview"
 FALLBACK_MODEL: str = "gemini-3.1-flash-lite-preview"
 
-MAX_SLIDING_WINDOW: int = 15
+MAX_SLIDING_WINDOW: int = 15  # used in _memory_block for long-term cap
+MAX_CHAT_HISTORY_TOKENS: int = 10  # slice applied in chat_assistant before prompt
 
 # Ingredients / actives that must never be recommended during pregnancy.
 # The LLM also receives this list in the system prompt; this client-side copy
@@ -183,7 +189,7 @@ class RoutineResponse(BaseModel):
 class GlowmiUserProfile(TypedDict, total=False):
     """Documented shape of the user_profile dict. Django builds this."""
 
-    language: Literal["en", "ar"]
+    language: Literal["en", "ar"]  # Optional. If provided, overrides auto-detection.
     is_pregnant: bool
     skin_type: str
     concerns: list[str]
@@ -195,6 +201,7 @@ class GlowmiUserProfile(TypedDict, total=False):
     climate: str
     sensitivity_level: Literal["low", "medium", "high"]
     current_products: list[str]
+    additional_details: str
 
 
 # ---------------------------------------------------------------------------
@@ -236,16 +243,17 @@ def _resolve_language(
     """Pick the output language.
 
     Priority:
-      1. Arabic characters detected in the user's latest input.
-         (Per spec: "The AI must instantly switch to the user's language.")
-      2. `user_profile["language"]`.
+      1. Explicit `language` in user_profile ("en" or "ar").
+      2. Arabic characters detected in the user's latest input.
       3. Default "en".
     """
+    lang = user_profile.get("language")
+    if lang in ("en", "ar"):
+        return lang
+
     if user_input and _ARABIC_BLOCK_RE.search(user_input):
         return "ar"
-    lang = user_profile.get("language")
-    if lang == "ar":
-        return "ar"
+
     return "en"
 
 
@@ -384,6 +392,11 @@ def _profile_block(
         "عضو منذ (أيام)",
         user_profile.get("account_tenure_days"),
     )
+    add(
+        "Additional details/goals",
+        "تفاصيل إضافية / أهداف",
+        user_profile.get("additional_details"),
+    )
 
     if ar:
         parts.append(
@@ -484,6 +497,7 @@ def _memory_block(
         )
         parts.append(summary_anchor)
 
+    # sliding_window is already pre-sliced by the caller (last 10 messages)
     recent = sliding_window[-MAX_SLIDING_WINDOW:] if sliding_window else []
     if recent:
         parts.append("## الرسائل الأخيرة" if ar else "## Recent messages")
@@ -500,10 +514,35 @@ def _memory_block(
             "قاعدة التعارض: إذا تعارضت الرسائل الأخيرة مع الملف الثابت، "
             "اعتمدي على أحدث معلومة من العميلة."
             if ar
-            else "Conflict rule: if the recent messages contradict the "
-            "static profile, prioritize the customer's most recent input."
+            else "Conflict rule: if recent chat or live intake data conflicts "
+            "with the static user_profile, prioritize the most recent input."
         )
     return "\n".join(parts)
+
+
+def _someone_else_block(language: Literal["en", "ar"]) -> str:
+    """Inject the 'Someone Else' exception and is_for_friend JSON flag rules."""
+    if language == "ar":
+        return (
+            "## استثناء 'لشخص آخر'\n"
+            "إذا طلبت العميلة نصيحة عناية بالبشرة لصديقة أو أحد أفراد الأسرة، "
+            "اطلبي تفاصيل ذلك الشخص تحديداً (نوع بشرته، مخاوفه، عمره، إلخ). "
+            "لا تبني توصياتك على ملف العميلة الأصلي. "
+            "عندما يخص الحوار الحالي شخصاً آخر وليس العميلة نفسها، يجب أن يحتوي "
+            'ردّكِ على الحقل: \'is_for_friend\': true. '
+            "وإذا كان الحوار للعميلة نفسها، اضبطي "
+            '\'is_for_friend\': false.'
+        )
+    return (
+        "## 'Someone Else' Exception\n"
+        "If the user is asking for skincare advice for a friend or family "
+        "member, ask for that person's specific details (skin type, concerns, "
+        "age, etc.). Do NOT base the friend's advice on the main user's "
+        "user_profile. When the current conversation is about someone other "
+        "than the main user, your response JSON MUST include "
+        "'is_for_friend': true. When it is about the main user, set "
+        "'is_for_friend': false."
+    )
 
 
 def _build_system_instruction(
@@ -513,6 +552,7 @@ def _build_system_instruction(
     include_memory: bool = False,
     summary_anchor: str | None = None,
     sliding_window: list[dict[str, str]] | None = None,
+    include_friend_exception: bool = False,
 ) -> str:
     blocks = [
         _brand_persona_block(language),
@@ -524,6 +564,8 @@ def _build_system_instruction(
         mem = _memory_block(summary_anchor, sliding_window or [], language)
         if mem:
             blocks.append(mem)
+    if include_friend_exception:
+        blocks.append(_someone_else_block(language))
     return "\n\n".join(blocks)
 
 
@@ -607,16 +649,45 @@ def _safe_routine_fallback(language: Literal["en", "ar"]) -> dict[str, Any]:
     }
 
 
-def _safe_chat_fallback(language: Literal["en", "ar"]) -> str:
+def _safe_chat_fallback(
+    language: Literal["en", "ar"],
+    old_anchor: str = "",
+) -> dict[str, Any]:
+    """Return the safe fallback dict when Gemini is unavailable."""
     if language == "ar":
-        return (
-            "نعتذر، حدث خلل بسيط في الاتصال. يمكنكِ إعادة المحاولة بعد "
+        message = (
+            "نعتذر، نواجه حالياً ضغطاً عالياً. يمكنكِ إعادة المحاولة بعد "
             "لحظات، ونحن هنا لمساعدتكِ متى شئتِ. عائلة Glowmi."
         )
-    return (
-        "Apologies — we had a brief connection issue. Please try again in "
-        "a moment; we're here whenever you're ready. — The Glowmi family."
-    )
+    else:
+        message = (
+            "We are experiencing high traffic at the moment. Please try again "
+            "in a moment; we're here whenever you're ready. — The Glowmi family."
+        )
+    return {
+        "response": message,
+        "updated_summary_anchor": old_anchor,
+        "is_for_friend": False,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Base64 Image Helper
+# ---------------------------------------------------------------------------
+
+
+def _decode_base64_image(b64_str: str) -> genai_types.Part | None:
+    if not b64_str:
+        return None
+    try:
+        # Strip data URL scheme if present (e.g., "data:image/jpeg;base64,...")
+        if "," in b64_str:
+            b64_str = b64_str.split(",", 1)[1]
+        image_bytes = base64.b64decode(b64_str)
+        return genai_types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+    except Exception as exc:
+        print(f"[ai_engine] base64 decode error: {exc}")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -627,8 +698,7 @@ def _safe_chat_fallback(language: Literal["en", "ar"]) -> str:
 async def generate_routine(
     user_profile: dict[str, Any],
     product_catalog: list[dict[str, Any]],
-    image_bytes: bytes | None = None,
-    mime_type: str | None = None,
+    user_image_b64: str | None = None,
 ) -> dict[str, Any]:
     """Generate a personalized AM/PM skincare routine.
 
@@ -659,14 +729,18 @@ async def generate_routine(
             "Build a personalized AM and PM routine for this customer using "
             "ONLY products from the Glowmi catalog. Return a JSON object "
             "matching the required schema. Write all rationales in English. "
-            "Respect every safety rule. If the user provided an image, analyze it for visible concerns (e.g. acne, redness, dark spots)."
+            "Respect every safety rule."
         )
 
     contents: list[Any] = [user_task]
-    if image_bytes and mime_type:
-        contents.append(
-            genai_types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-        )
+    if user_image_b64:
+        image_part = _decode_base64_image(user_image_b64)
+        if image_part:
+            contents.insert(0, image_part)
+            if language == "ar":
+                contents.append("الرجاء تحليل الصورة المرفقة لبشرة العميلة وأخذها في الاعتبار عند بناء الروتين.")
+            else:
+                contents.append("Please analyze the attached photo of the customer's skin and take it into account when building the routine.")
 
     response = await _call_with_fallback(
         system_instruction=system_instruction,
@@ -787,23 +861,75 @@ def _post_filter_routine(
     }
 
 
+class _ChatResponse(BaseModel):
+    """Structured envelope returned by the chat assistant Gemini call."""
+
+    response: str = Field(description="The assistant's reply to the user.")
+    is_for_friend: bool = Field(
+        default=False,
+        description=(
+            "True when the current conversation is about skincare advice for "
+            "a friend or family member, not the registered user."
+        ),
+    )
+
+
 async def chat_assistant(
     user_input: str,
+    chat_history: list[dict],
     summary_anchor: str,
-    sliding_window: list[dict[str, str]],
-    product_catalog: list[dict[str, Any]],
     user_profile: dict[str, Any],
-) -> str:
-    """Conversational concierge with layered memory. Never raises."""
+    product_catalog: list[dict[str, Any]],
+    user_image_b64: str | None = None,
+) -> dict[str, Any]:
+    """Conversational concierge with layered memory.
+
+    Parameters
+    ----------
+    user_input:
+        The user's latest message.
+    chat_history:
+        Full conversation history as a list of dicts
+        ``[{"role": "user"|"assistant", "content": "..."}]``.
+        Internally sliced to the last ``MAX_CHAT_HISTORY_TOKENS`` messages
+        before being passed to Gemini to save tokens.
+    summary_anchor:
+        Rolling compressed memory string from previous sessions.
+    user_profile:
+        Standard Python dict built by the Django layer.
+    product_catalog:
+        List of product dicts from the Django layer.
+    user_image_b64:
+        Optional base-64 encoded image of the user's skin.
+
+    Returns
+    -------
+    dict with keys:
+        ``response``              – the assistant's reply (str)
+        ``updated_summary_anchor`` – new compressed memory string (str)
+        ``is_for_friend``         – True when advice is for a 3rd party (bool)
+
+    Never raises — falls back gracefully on any Gemini error.
+    """
     language: Literal["en", "ar"] = _resolve_language(user_profile, user_input)
 
+    # Emergency pre-flight — return structured dict even for emergencies
     if _is_emergency(user_input, language):
-        return _emergency_response(language)
+        return {
+            "response": _emergency_response(language),
+            "updated_summary_anchor": summary_anchor,
+            "is_for_friend": False,
+        }
 
     if "age" not in user_profile and "date_of_birth" in user_profile:
         derived = _derive_age(user_profile["date_of_birth"])
         if derived is not None:
             user_profile = {**user_profile, "age": derived}
+
+    # --- Slice chat history to last MAX_CHAT_HISTORY_TOKENS messages ---
+    windowed_history: list[dict] = (
+        chat_history[-MAX_CHAT_HISTORY_TOKENS:] if chat_history else []
+    )
 
     system_instruction = _build_system_instruction(
         user_profile=user_profile,
@@ -811,31 +937,91 @@ async def chat_assistant(
         language=language,
         include_memory=True,
         summary_anchor=summary_anchor,
-        sliding_window=sliding_window,
+        sliding_window=windowed_history,
+        include_friend_exception=True,
     )
 
+    # Instruct the model to always return structured JSON
     if language == "ar":
-        prefix = "رسالة العميلة الحالية: "
+        prefix = (
+            "رسالة العميلة الحالية: "
+        )
+        json_instruction = (
+            "\n\nيجب أن يكون ردّكِ دائماً كائن JSON بالتنسيق التالي:\n"
+            '{"response": "<ردّكِ الكامل هنا>", "is_for_friend": <true|false>}'
+        )
     else:
         prefix = "Customer's current message: "
+        json_instruction = (
+            "\n\nYou MUST always reply with a JSON object in this exact format:\n"
+            '{"response": "<your full reply here>", "is_for_friend": <true|false>}'
+        )
+
+    contents: list[Any] = [prefix + user_input + json_instruction]
+    if user_image_b64:
+        image_part = _decode_base64_image(user_image_b64)
+        if image_part:
+            contents.insert(0, image_part)
 
     response = await _call_with_fallback(
         system_instruction=system_instruction,
-        contents=prefix + user_input,
-        response_schema=None,
+        contents=contents,
+        response_schema=_ChatResponse,
         temperature=0.7,
     )
 
     if response is None:
-        return _safe_chat_fallback(language)
+        return _safe_chat_fallback(language, old_anchor=summary_anchor)
 
+    # --- Parse structured response ---
+    chat_parsed: _ChatResponse | None = None
     try:
-        text = response.text
-    except Exception as exc:  # noqa: BLE001
-        print(f"[ai_engine] chat text extract error: {exc!r}")
-        return _safe_chat_fallback(language)
+        if getattr(response, "parsed", None) is not None:
+            chat_parsed = response.parsed
+        else:
+            raw = (response.text or "").strip()
+            chat_parsed = _ChatResponse.model_validate_json(raw)
+    except (ValidationError, ValueError, json.JSONDecodeError) as exc:
+        print(f"[ai_engine] chat parse error: {exc}")
+        # Attempt graceful recovery: treat raw text as the reply
+        raw_text = ""
+        try:
+            raw_text = (response.text or "").strip()
+        except Exception:  # noqa: BLE001
+            pass
+        return {
+            "response": raw_text or _safe_chat_fallback(language, summary_anchor)["response"],
+            "updated_summary_anchor": summary_anchor,
+            "is_for_friend": False,
+        }
 
-    return (text or _safe_chat_fallback(language)).strip()
+    is_for_friend: bool = bool(getattr(chat_parsed, "is_for_friend", False))
+    reply_text: str = (getattr(chat_parsed, "response", "") or "").strip()
+
+    if not reply_text:
+        return _safe_chat_fallback(language, old_anchor=summary_anchor)
+
+    # --- Summary anchor update (background) ---
+    # If is_for_friend, do NOT pollute the main user's memory with friend data.
+    if is_for_friend:
+        updated_anchor = summary_anchor
+    else:
+        # Fire-and-return: generate the updated anchor from the new exchange
+        new_exchange = windowed_history + [
+            {"role": "user", "content": user_input},
+            {"role": "assistant", "content": reply_text},
+        ]
+        updated_anchor = await update_summary_anchor(
+            old_anchor=summary_anchor,
+            new_messages=new_exchange,
+            language=language,
+        )
+
+    return {
+        "response": reply_text,
+        "updated_summary_anchor": updated_anchor,
+        "is_for_friend": is_for_friend,
+    }
 
 
 async def update_summary_anchor(

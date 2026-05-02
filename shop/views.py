@@ -352,19 +352,32 @@ class GenerateAIRoutineView(APIView):
                 "product_url": f"/product/{p.id}",
             })
             
-        image_bytes = None
-        mime_type = None
+        user_image_b64 = None
         photo = data.get("photo") or request.FILES.get("photo")
         if photo:
-            image_bytes = photo.read()
-            mime_type = photo.content_type
+            import base64
+            user_image_b64 = base64.b64encode(photo.read()).decode("utf-8")
             
         routine = async_to_sync(ai_engine.generate_routine)(
             user_profile, 
             product_catalog,
-            image_bytes=image_bytes,
-            mime_type=mime_type
+            user_image_b64=user_image_b64
         )
+
+        # Enrich routine output to match frontend UI requirements
+        for phase in ["am_routine", "pm_routine"]:
+            for step in routine.get(phase, []):
+                pid = step.get("product_id")
+                if pid:
+                    db_prod = Product.objects.filter(id=pid).first()
+                    if db_prod:
+                        brand = "PureGlow"
+                        category = db_prod.category.name if db_prod.category else "Skincare"
+                        
+                        step["brand"] = brand
+                        step["category"] = category
+                        step["brand_type"] = db_prod.sub_title if db_prod.sub_title else f"{brand} • {category}"
+                        step["how_to_use"] = db_prod.how_to_use if db_prod.how_to_use else step.get("rationale", "")
         
         return success_response(
             message="Routine generated successfully",
