@@ -384,3 +384,35 @@ class GenerateAIRoutineView(APIView):
             data=routine,
             status_code=status.HTTP_200_OK
         )
+
+
+class ChatHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .models import ChatSession, ChatMessage
+        session = ChatSession.objects.filter(user=request.user).first()
+        if not session:
+            return success_response(
+                message="No chat history found",
+                data={"messages": []},
+                status_code=status.HTTP_200_OK
+            )
+            
+        messages = ChatMessage.objects.filter(session=session).order_by('created_at')
+        
+        history = []
+        for msg in messages:
+            history.append({
+                "id": msg.id,
+                "role": msg.role,
+                "content": msg.content,
+                "is_for_friend": msg.is_for_friend,
+                "created_at": msg.created_at.isoformat()
+            })
+            
+        return success_response(
+            message="Chat history retrieved successfully",
+            data={"messages": history},
+            status_code=status.HTTP_200_OK
+        )
