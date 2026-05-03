@@ -215,6 +215,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only = True)
     new_password = serializers.CharField(write_only = True)
+    confirm_password = serializers.CharField(write_only = True)
 
     def validate_old_password(self, value):
         user = self.context['request'].user
@@ -226,6 +227,11 @@ class ChangePasswordSerializer(serializers.Serializer):
         user = self.context.get('request').user if self.context.get('request') else None
         password_validation.validate_password(value, user=user)
         return value
+    
+    def validate(self, attrs):
+        if attrs.get('new_password') != attrs.get('confirm_password'):
+            raise serializers.ValidationError({"confirm_password": "New passwords do not match."})
+        return attrs
     
     def save(self, **kwargs):
         user = self.context['request'].user
