@@ -428,10 +428,32 @@ class ProfileAPIView(APIView):
     )
 
     def get(self, request):
-        serializer = ProfileSerializer(request.user.profile,context ={'request': request})
+        user = request.user
+        serializer = ProfileSerializer(user.profile, context={'request': request})
+        data = serializer.data
+        
+        # Additional data
+        from shop.models import GeneratedRoutine, Cart, OrderItem
+        from django.db.models import Sum
+
+        # Analysis count (AI routines)
+        analysis_count = GeneratedRoutine.objects.filter(user=user).count()
+        
+        # Total Cart Products
+        cart = Cart.objects.filter(user=user).first()
+        total_cart_product = cart.items.aggregate(total=Sum('quantity'))['total'] if cart else 0
+        total_cart_product = total_cart_product or 0
+        
+        # Total Order Products
+        total_order_products = OrderItem.objects.filter(order__user=user).aggregate(total=Sum('quantity'))['total'] or 0
+        
+        data['analysis'] = analysis_count
+        data['total_cart_product'] = total_cart_product
+        data['total_order_products'] = total_order_products
+
         return success_response(
             message="Profile fetched successfully",
-            data=serializer.data,
+            data=data,
             status_code=status.HTTP_200_OK
         )
     

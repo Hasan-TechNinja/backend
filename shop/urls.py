@@ -14,5 +14,6 @@ urlpatterns = [
     # AI Routine & Chat
     path('generate-routine/', GenerateAIRoutineView.as_view(), name='generate-routine'),
     path('routine/history/', RoutineHistoryView.as_view(), name='routine-history'),
+    path('routine/history/<int:routine_id>/', RoutineHistoryView.as_view(), name='routine-history'),
     path('chat/history/', ChatHistoryView.as_view(), name='chat-history'),
 ]

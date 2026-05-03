@@ -470,6 +470,27 @@ class RoutineHistoryView(APIView):
             data={"routines": history},
             status_code=status.HTTP_200_OK
         )
+    
+    @swagger_auto_schema(
+        operation_summary="Delete AI routine",
+        operation_description="Deletes a specific AI generated routine for the authenticated user.",
+        tags=['Shop']
+    )
+    def delete(self, request, routine_id):
+        from .models import GeneratedRoutine
+        routine = GeneratedRoutine.objects.filter(user=request.user, id=routine_id).first()
+        if not routine:
+            return success_response(
+                message="Routine not found",
+                data={},
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        routine.delete()
+        return success_response(
+            message="Routine deleted successfully",
+            data={},
+            status_code=status.HTTP_200_OK
+        )
 
 
 class ChatHistoryView(APIView):
