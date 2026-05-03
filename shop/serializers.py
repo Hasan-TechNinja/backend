@@ -43,17 +43,15 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             'id', 'user', 'total_amount', 'status', 'items',
-            'first_name', 'last_name', 'email', 'phone',
+            'full_name', 'phone',
             'address_line1', 'address_line2', 'city', 'state',
             'postal_code', 'country', 'created_at'
         ]
         read_only_fields = ['user', 'total_amount', 'status']
 
 class CheckoutRequestSerializer(serializers.Serializer):
-    payment_brand = serializers.ChoiceField(choices=['VISA', 'MASTER', 'MADA', 'APPLEPAY', 'TABBY', 'TAMARA'])
-    first_name = serializers.CharField(max_length=100)
-    last_name = serializers.CharField(max_length=100)
-    email = serializers.EmailField()
+    payment_brand = serializers.ChoiceField(choices=['VISA', 'MASTER', 'MADA', 'APPLEPAY', 'TABBY', 'TAMARA', 'COD'])
+    full_name = serializers.CharField(max_length=200)
     phone = serializers.CharField(max_length=20)
     address_line1 = serializers.CharField(max_length=255)
     address_line2 = serializers.CharField(max_length=255, required=False, allow_blank=True)

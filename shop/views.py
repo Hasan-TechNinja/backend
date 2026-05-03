@@ -153,16 +153,6 @@ class InitiateCheckoutView(APIView):
             return Response({"error": "Cart is empty"}, status=status.HTTP_400_BAD_REQUEST)
 
         payment_brand = serializer.validated_data['payment_brand']
-        
-        # Access HYPERPAY_ENTITY_IDS from settings
-        entity_ids = getattr(settings, 'HYPERPAY_ENTITY_IDS', {})
-        entity_id = entity_ids.get(payment_brand)
-        
-        if not entity_id:
-            return Response(
-                {"error": f"Invalid payment brand or missing entityId for {payment_brand}"}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
 
         try:
             with transaction.atomic():
@@ -188,6 +178,24 @@ class InitiateCheckoutView(APIView):
                         quantity=item.quantity,
                         price=price
                     )
+                
+                if payment_brand == 'COD':
+                    # Cash on Delivery logic
+                    Cart.objects.filter(user=request.user).delete()
+                    sync_order_to_omniful.delay(order.id)
+                    
+                    return success_response(
+                        message="Order placed successfully with Cash on Delivery",
+                        data={"orderId": order.id, "status": "pending"},
+                        status_code=status.HTTP_201_CREATED
+                    )
+
+                # Access HYPERPAY_ENTITY_IDS from settings
+                entity_ids = getattr(settings, 'HYPERPAY_ENTITY_IDS', {})
+                entity_id = entity_ids.get(payment_brand)
+                
+                if not entity_id:
+                    raise Exception(f"Invalid payment brand or missing entityId for {payment_brand}")
                 
                 # Call HyperPay Service
                 hyperpay = HyperPayService()
@@ -305,6 +313,49 @@ class PaymentCallbackView(APIView):
                 "message": transaction_obj.result_description,
                 "code": transaction_obj.result_code
             }, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+
+class OrderDeliveredView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_summary="Update Order Status to Delivered",
+        operation_description="User can mark their Cash on Delivery order as delivered.",
+        tags=['Shop']
+    )
+    def patch(self, request, order_id):
+        order = get_object_or_404(Order, id=order_id, user=request.user)
+        
+        if order.status == 'delivered':
+            return Response({"error": "Order is already delivered"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        order.status = 'delivered'
+        order.save()
+        
+        return success_response(
+            message="Order status updated to delivered successfully",
+            data={"orderId": order.id, "status": "delivered"},
+            status_code=status.HTTP_200_OK
+        )
+
+
+class OrderListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Get user's order list",
+        operation_description="Returns a list of all orders placed by the authenticated user.",
+        responses={200: OrderSerializer(many=True)},
+        tags=['Shop']
+    )
+    def get(self, request):
+        orders = Order.objects.filter(user=request.user).order_by('-created_at')
+        serializer = OrderSerializer(orders, many=True)
+        return success_response(
+            message="Order list fetched successfully",
+            data=serializer.data,
+            status_code=status.HTTP_200_OK
+        )
 
 class GenerateAIRoutineView(APIView):
     @swagger_auto_schema(
