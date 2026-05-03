@@ -113,3 +113,14 @@ class ChatMessage(models.Model):
 
     def __str__(self):
         return f"{self.role} message in {self.session}"
+
+class GeneratedRoutine(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='routines', null=True, blank=True)
+    skin_profile = models.JSONField(blank=True, null=True)
+    routine_data = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        if self.user:
+            return f"Routine for {self.user.email} at {self.created_at}"
+        return f"Routine at {self.created_at}"

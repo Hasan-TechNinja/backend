@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import CartView, InitiateCheckoutView, PaymentCallbackView, GenerateAIRoutineView, ChatHistoryView
+from .views import CartView, InitiateCheckoutView, PaymentCallbackView, GenerateAIRoutineView, RoutineHistoryView, ChatHistoryView
 
 urlpatterns = [
     path('cart/', CartView.as_view(), name='cart-detail'),
@@ -11,5 +11,6 @@ urlpatterns = [
     
     # AI Routine & Chat
     path('generate-routine/', GenerateAIRoutineView.as_view(), name='generate-routine'),
+    path('routine/history/', RoutineHistoryView.as_view(), name='routine-history'),
     path('chat/history/', ChatHistoryView.as_view(), name='chat-history'),
 ]

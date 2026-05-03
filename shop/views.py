@@ -379,9 +379,44 @@ class GenerateAIRoutineView(APIView):
                         step["brand_type"] = db_prod.sub_title if db_prod.sub_title else f"{brand} • {category}"
                         step["how_to_use"] = db_prod.how_to_use if db_prod.how_to_use else step.get("rationale", "")
         
+        from .models import GeneratedRoutine
+        if request.user and request.user.is_authenticated:
+            GeneratedRoutine.objects.create(
+                user=request.user,
+                skin_profile=user_profile,
+                routine_data=routine
+            )
+
         return success_response(
             message="Routine generated successfully",
             data=routine,
+            status_code=status.HTTP_200_OK
+        )
+
+class RoutineHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_summary="Get user's AI routine history",
+        operation_description="Returns all previously generated AI skincare routines for the authenticated user.",
+        tags=['Shop']
+    )
+    def get(self, request):
+        from .models import GeneratedRoutine
+        routines = GeneratedRoutine.objects.filter(user=request.user).order_by('-created_at')
+        
+        history = []
+        for routine in routines:
+            history.append({
+                "id": routine.id,
+                "skin_profile": routine.skin_profile,
+                "routine_data": routine.routine_data,
+                "created_at": routine.created_at.isoformat()
+            })
+            
+        return success_response(
+            message="Routine history retrieved successfully",
+            data={"routines": history},
             status_code=status.HTTP_200_OK
         )
 
