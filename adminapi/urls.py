@@ -1,7 +1,7 @@
 from django.urls import path
 from category.views import CategoryRetrieveUpdateDeleteApiView
 from product.views import ProductCreateAndListApiView,ProductRetrieveUpdateDestroyApiView
-from .views import UserListApiView, UserDeleteApiView, CategoryListCreateApiView
+from .views import UserListApiView, UserDeleteApiView, CategoryListCreateApiView, CustomerListApiView
 from . import views
 
 
@@ -9,6 +9,11 @@ urlpatterns = [
     # Members
     path("users/", UserListApiView.as_view(), name="user-list"),
     path("users/<int:pk>/delete/", UserDeleteApiView.as_view(), name="user-delete"),
+
+    # Customers
+    path("customers/", CustomerListApiView.as_view(), name="customer-list"),
+    path('customer/<int:pk>/', views.UserDetailApiView.as_view(), name='customer-detail'),
+    path('customer/<int:pk>/delete/', views.UserDetailApiView.as_view(), name='customer-delete'),
 
     # Category
     path("category/", CategoryListCreateApiView.as_view(), name="category-create-and-list"),

@@ -1,11 +1,12 @@
 from rest_framework import generics
 from account.models import User, PrivacyPolicy, TermsAndConditions
-from .serializers import UserListSerializer, PrivacyPolicyListSerializer, TermsAndConditionsListSerializer
+from .serializers import UserListSerializer, PrivacyPolicyListSerializer, TermsAndConditionsListSerializer, CustomerListSerializer, UserDetailSerializer
 from account import permissions
 from category.models import Category
 from category.serializers import Categorylistserializer
 from skincare.response import success_response
 from rest_framework import status
+from django.db.models import Count, Sum
 
 # Create your views here.
 
@@ -95,4 +96,44 @@ class TermsAndConditionsListCreateApiView(generics.ListCreateAPIView, generics.R
             message=message,
             data=serializer.data,
             status_code=status_code
+        )
+
+
+class CustomerListApiView(generics.ListAPIView):
+    permission_classes = [permissions.IsAdminRole]
+    serializer_class = CustomerListSerializer
+
+    def get_queryset(self):
+        # Customers who have purchased minimum one time
+        return User.objects.filter(role='user', orders__isnull=False).distinct().annotate(
+            orders_count=Count('orders', distinct=True),
+            total_spent=Sum('orders__total_amount')
+        ).order_by('-id')
+
+
+class UserDetailApiView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [permissions.IsAdminRole]
+    serializer_class = UserDetailSerializer
+    queryset = User.objects.all().select_related('profile')
+    lookup_field = 'pk'
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return success_response(
+            message="User updated successfully",
+            data=serializer.data,
+            status_code=status.HTTP_200_OK
+        )
+
+    def delete(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return success_response(
+            message="User deleted successfully",
+            data=None,
+            status_code=status.HTTP_200_OK
         )
