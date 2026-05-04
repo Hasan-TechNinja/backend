@@ -7,6 +7,11 @@ from category.serializers import Categorylistserializer
 from skincare.response import success_response
 from rest_framework import status
 from django.db.models import Count, Sum
+from shop.models import GeneratedRoutine
+from product.models import Product
+from django.utils import timezone
+from datetime import timedelta
+from rest_framework.views import APIView
 
 # Create your views here.
 
@@ -162,5 +167,99 @@ class AnalyserDetailApiView(generics.RetrieveDestroyAPIView):
         return success_response(
             message="User deleted successfully",
             data=None,
+            status_code=status.HTTP_200_OK
+        )
+
+
+class AIAnalyticsProductListView(APIView):
+    permission_classes = [permissions.IsAdminRole]
+
+    def get(self, request):
+        now = timezone.now()
+        thirty_days_ago = now - timedelta(days=30)
+        sixty_days_ago = now - timedelta(days=60)
+
+        routines_current = GeneratedRoutine.objects.filter(created_at__gte=thirty_days_ago)
+        routines_previous = GeneratedRoutine.objects.filter(created_at__gte=sixty_days_ago, created_at__lt=thirty_days_ago)
+        routines_all = GeneratedRoutine.objects.all()
+
+        def count_products(routines):
+            counts = {}
+            for r in routines:
+                if not r.routine_data:
+                    continue
+                # JSON fields could be dicts or strings depending on DB
+                data = r.routine_data
+                if isinstance(data, str):
+                    import json
+                    try:
+                        data = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                
+                am_steps = data.get('am_routine', []) if isinstance(data, dict) else []
+                pm_steps = data.get('pm_routine', []) if isinstance(data, dict) else []
+                
+                for step in am_steps + pm_steps:
+                    if isinstance(step, dict):
+                        pid = step.get('product_id')
+                        if pid:
+                            counts[pid] = counts.get(pid, 0) + 1
+            return counts
+
+        current_counts = count_products(routines_current)
+        previous_counts = count_products(routines_previous)
+        all_counts = count_products(routines_all)
+
+        products = Product.objects.select_related('category').filter(id__in=all_counts.keys())
+        
+        result = []
+        category_performance = {}
+
+        for p in products:
+            total_recs = all_counts.get(p.id, 0)
+            cur = current_counts.get(p.id, 0)
+            prev = previous_counts.get(p.id, 0)
+
+            # Category performance grouping
+            cat_name = p.category.name if p.category else "Uncategorized"
+            if cat_name not in category_performance:
+                category_performance[cat_name] = {"current": 0, "previous": 0}
+            
+            category_performance[cat_name]["current"] += cur
+            category_performance[cat_name]["previous"] += prev
+
+            if prev == 0:
+                trend_val = 100.0 if cur > 0 else 0.0
+            else:
+                trend_val = ((cur - prev) / prev) * 100
+
+            trend_str = f"+{trend_val:.1f}%" if trend_val > 0 else f"{trend_val:.1f}%"
+            if trend_val == 0:
+                trend_str = "0.0%"
+
+            result.append({
+                "id": p.id,
+                "product_name": p.title,
+                "category": cat_name,
+                "recommendations": total_recs,
+                "trend": trend_str
+            })
+
+        result.sort(key=lambda x: x['recommendations'], reverse=True)
+
+        performance_list = [
+            {"category": cat, "current": counts["current"], "previous": counts["previous"]}
+            for cat, counts in category_performance.items()
+        ]
+
+        response_data = {
+            "products": result,
+            "performance_by_category": performance_list
+        }
+
+        return success_response(
+            message="AI Analytics Products",
+            data=response_data,
             status_code=status.HTTP_200_OK
         )

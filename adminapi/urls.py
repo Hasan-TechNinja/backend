@@ -35,4 +35,7 @@ urlpatterns = [
     path("analyser/", views.AnalyserListApiView.as_view(), name="analyser-list"),
     path("analyser/<int:pk>/", views.AnalyserDetailApiView.as_view(), name="analyser-detail"),
     path("analyser/<int:pk>/delete/", views.AnalyserDetailApiView.as_view(), name="analyser-delete"),
+
+    # AI Analytics
+    path("ai-analytics/products/", views.AIAnalyticsProductListView.as_view(), name="ai-analytics-products"),
 ]
