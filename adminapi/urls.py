@@ -30,4 +30,9 @@ urlpatterns = [
     # Terms and Conditions
     path("terms-and-conditions/", views.TermsAndConditionsListCreateApiView.as_view(), name="terms-and-conditions-create-and-list"),
     path("terms-and-conditions/<int:pk>/", views.TermsAndConditionsListCreateApiView.as_view(), name="terms-and-conditions-detail"),
+
+    # Analyser
+    path("analyser/", views.AnalyserListApiView.as_view(), name="analyser-list"),
+    path("analyser/<int:pk>/", views.AnalyserDetailApiView.as_view(), name="analyser-detail"),
+    path("analyser/<int:pk>/delete/", views.AnalyserDetailApiView.as_view(), name="analyser-delete"),
 ]

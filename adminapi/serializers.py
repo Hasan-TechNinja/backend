@@ -86,3 +86,29 @@ class UserDetailSerializer(serializers.ModelSerializer):
 
     def get_total_spent(self, obj):
         return obj.orders.aggregate(total=Sum('total_amount'))['total'] or 0    
+
+
+class AnalyserListSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(source='profile.full_name', read_only=True)
+    join_date = serializers.DateTimeField(source='date_joined', read_only=True)
+    active_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'full_name', 'email', 'join_date', 'active_status']
+
+    def get_active_status(self, obj):
+        return "active" if obj.is_active else "inactive"
+
+
+class AnalyserDetailSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(source='profile.full_name', read_only=True)
+    join_date = serializers.DateTimeField(source='date_joined', read_only=True)
+    active_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'full_name', 'email', 'join_date', 'active_status']
+
+    def get_active_status(self, obj):
+        return "active" if obj.is_active else "inactive"

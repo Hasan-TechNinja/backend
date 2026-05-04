@@ -1,6 +1,6 @@
 from rest_framework import generics
 from account.models import User, PrivacyPolicy, TermsAndConditions
-from .serializers import UserListSerializer, PrivacyPolicyListSerializer, TermsAndConditionsListSerializer, CustomerListSerializer, UserDetailSerializer
+from .serializers import UserListSerializer, PrivacyPolicyListSerializer, TermsAndConditionsListSerializer, CustomerListSerializer, UserDetailSerializer, AnalyserListSerializer, AnalyserDetailSerializer
 from account import permissions
 from category.models import Category
 from category.serializers import Categorylistserializer
@@ -128,6 +128,33 @@ class UserDetailApiView(generics.RetrieveUpdateDestroyAPIView):
             data=serializer.data,
             status_code=status.HTTP_200_OK
         )
+
+    def delete(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return success_response(
+            message="User deleted successfully",
+            data=None,
+            status_code=status.HTTP_200_OK
+        )
+
+
+class AnalyserListApiView(generics.ListAPIView):
+    permission_classes = [permissions.IsAdminRole]
+    serializer_class = AnalyserListSerializer
+
+    def get_queryset(self):
+        return User.objects.filter(routines__isnull=False).distinct().order_by('-id')
+
+
+class AnalyserDetailApiView(generics.RetrieveDestroyAPIView):
+    permission_classes = [permissions.IsAdminRole]
+    serializer_class = AnalyserDetailSerializer
+    queryset = User.objects.all()
+    lookup_field = 'pk'
+
+    def get_object(self):
+        return User.objects.filter(routines__isnull=False).distinct().get(pk=self.kwargs['pk'])
 
     def delete(self, request, *args, **kwargs):
         instance = self.get_object()
