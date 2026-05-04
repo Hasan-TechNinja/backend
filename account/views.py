@@ -8,7 +8,6 @@ from .serializers import RegisterSerializer,CustomTokenObtainPairSerializer,Chan
 from .models import Profile,PrivacyPolicy,TermsAndConditions
 from .tasks import send_welcome_email
 
-
 #jwt
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView,TokenRefreshView
@@ -196,6 +195,57 @@ class LoginAPIView(TokenObtainPairView):
         response = super().post(request , *args, **kwargs)
         return success_response(message="Login successfully",data=response.data,status_code=status.HTTP_200_OK)
 
+class LogoutAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Logout the user by blacklisting the refresh token.",
+        tags=["Authentication"],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['refresh'],
+            properties={
+                'refresh': openapi.Schema(type=openapi.TYPE_STRING, description="The refresh token to blacklist")
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Logout successful",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "success": openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING, example="Logout successfully"),
+                        "data": openapi.Schema(type=openapi.TYPE_OBJECT, example={}),
+                    }
+                )
+            ),
+            400: openapi.Response(description="Invalid token")
+        }
+    )
+    def post(self, request):
+        try:
+            refresh_token = request.data.get("refresh")
+            if not refresh_token:
+                return success_response(
+                    message="Refresh token is required",
+                    data={},
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            return success_response(
+                message="Logout successfully",
+                data={},
+                status_code=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return success_response(
+                message="Invalid token",
+                data={},
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
 
 #Refresh Token view

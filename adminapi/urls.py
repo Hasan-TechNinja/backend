@@ -38,4 +38,7 @@ urlpatterns = [
 
     # AI Analytics
     path("ai-analytics/products/", views.AIAnalyticsProductListView.as_view(), name="ai-analytics-products"),
+
+    # Dashboard
+    path("dashboard/summary/", views.DashboardSummaryView.as_view(), name="dashboard-summary"),
 ]

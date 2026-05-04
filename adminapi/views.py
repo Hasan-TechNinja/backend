@@ -12,6 +12,7 @@ from product.models import Product
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework.views import APIView
+from shop.models import Order
 
 # Create your views here.
 
@@ -261,5 +262,71 @@ class AIAnalyticsProductListView(APIView):
         return success_response(
             message="AI Analytics Products",
             data=response_data,
+            status_code=status.HTTP_200_OK
+        )
+
+
+class DashboardSummaryView(APIView):
+    permission_classes = [permissions.IsAdminRole]
+
+    def get(self, request):
+        # 1. Total Revenue (Sum of paid/shipped/delivered orders)
+        revenue_data = Order.objects.filter(
+            status__in=['paid', 'shipped', 'delivered']
+        ).aggregate(total=Sum('total_amount'))
+        total_revenue = float(revenue_data['total'] or 0.0)
+
+        # 2. Total Orders
+        total_orders = Order.objects.count()
+
+        # 3. Total Customers
+        total_customers = User.objects.filter(role='user').count()
+
+        # 4. Product Views (Using total AI recommendations as proxy for engagement)
+        total_views = 0
+        routines = GeneratedRoutine.objects.all()
+        for r in routines:
+            if not r.routine_data:
+                continue
+            data = r.routine_data
+            if isinstance(data, str):
+                import json
+                try:
+                    data = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+            
+            am_steps = data.get('am_routine', []) if isinstance(data, dict) else []
+            pm_steps = data.get('pm_routine', []) if isinstance(data, dict) else []
+            total_views += len(am_steps) + len(pm_steps)
+
+        # 5. Conversion Rate (Paid Orders / Total Users * 100)
+        paid_orders = Order.objects.filter(status__in=['paid', 'shipped', 'delivered']).count()
+        conversion_rate = 0.0
+        if total_customers > 0:
+            conversion_rate = (paid_orders / total_customers) * 100
+
+        # 6. Performance (Last 5 days)
+        five_days_ago = timezone.now() - timedelta(days=5)
+        new_orders_count = Order.objects.filter(created_at__gte=five_days_ago).count()
+        shipped_orders_count = Order.objects.filter(status='shipped', created_at__gte=five_days_ago).count()
+        delivered_orders_count = Order.objects.filter(status='delivered', created_at__gte=five_days_ago).count()
+
+        data = {
+            "total_revenue": total_revenue,
+            "total_orders": total_orders,
+            "total_customers": total_customers,
+            "product_views": total_views,
+            "conversion_rate": round(conversion_rate, 3),
+            "performance": {
+                "new_orders": new_orders_count,
+                "shipped_orders": shipped_orders_count,
+                "delivered_orders": delivered_orders_count
+            }
+        }
+
+        return success_response(
+            message="Dashboard summary fetched successfully",
+            data=data,
             status_code=status.HTTP_200_OK
         )
