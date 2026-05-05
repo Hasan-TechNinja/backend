@@ -21,7 +21,7 @@ def send_otp_email(user_id, otp):
             message=f"Hello {user.username}, your OTP is: {otp}",
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[user.email],
-            fail_silently=False,
+            # fail_silently=False,
         )
         logger.info(f"OTP email sent successfully to {user.email}")
         return f"OTP sent to {user.email}"

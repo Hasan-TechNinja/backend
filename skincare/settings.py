@@ -31,14 +31,17 @@ SECRET_KEY = 'django-insecure-g@yk@a7b*_z#5_bqmc5d8^$_1*^)&2ihuucu%ajirs73rqxtrc
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["api.glowmi.net","localhost", "127.0.0.1", "10.10.13.61", "intensely-optimal-unicorn.ngrok-free.app", "*", ".trycloudflare.com"]
+ALLOWED_HOSTS = ["api.glowmi.net","localhost", "127.0.0.1", "10.10.13.61", "97bc-103-186-20-8.ngrok-free.app", "*", ".trycloudflare.com"]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://api.glowmi.net",
-    "https://api.glowmi.net/",
-    "https://intensely-optimal-unicorn.ngrok-free.app",
+    "https://97bc-103-186-20-8.ngrok-free.app",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "http://localhost:3001",
+    "http://localhost:3200",
+    "http://127.0.0.1:3200",
     "https://*.trycloudflare.com",
     "http://10.10.13.61"
 ]
@@ -70,16 +73,26 @@ INSTALLED_APPS = [
 
 CORS_ALLOWED_ORIGINS = [
     "https://api.glowmi.net",
-    "https://intensely-optimal-unicorn.ngrok-free.app",
+    "https://97bc-103-186-20-8.ngrok-free.app",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:3200",
+    "http://127.0.0.1:3200",
 ]
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ORIGIN_ALLOW_ALL = True
+CORS_URLS_REGEX = r'^.*$'
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^http://localhost:.*$",
+    r"^http://127.0.0.1:.*$",
+]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    'corsheaders.middleware.CorsMiddleware',
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -111,23 +124,23 @@ ASGI_APPLICATION = "skincare.asgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.postgresql",
-#         "NAME": os.getenv('DB_NAME'),
-#         "USER": os.getenv('DB_USER'),
-#         "PASSWORD": os.getenv('DB_PASSWORD'),
-#         "HOST": os.getenv('DB_HOST'),
-#         "PORT": os.getenv('DB_PORT', '5432'),
-#     }
-# }
-
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv('DB_NAME'),
+        "USER": os.getenv('DB_USER'),
+        "PASSWORD": os.getenv('DB_PASSWORD'),
+        "HOST": os.getenv('DB_HOST'),
+        "PORT": os.getenv('DB_PORT', '5432'),
     }
 }
+
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
 
 
 # Password validation
@@ -186,6 +199,13 @@ CORS_ALLOW_HEADERS = [
     "user-agent",
     "x-csrftoken",
     "x-requested-with",
+    "ngrok-skip-browser-warning",
+]
+
+CORS_EXPOSE_HEADERS = [
+    "Content-Type",
+    "Authorization",
+    "ngrok-skip-browser-warning",
 ]
 
 CORS_ALLOW_METHODS = [
@@ -227,7 +247,7 @@ REST_FRAMEWORK = {
 
 #Swagger 
 SWAGGER_SETTINGS = {
-    'DEFAULT_API_URL': 'https://api.glowmi.net/',
+    # 'DEFAULT_API_URL': 'https://97bc-103-186-20-8.ngrok-free.app/',
     'SCHEMES': ['https'],
     'SECURITY_DEFINITIONS': {
         'Bearer': {
@@ -270,16 +290,23 @@ DEFAULT_FROM_EMAIL = os.getenv("EMAIL")
 
 
 
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
-CELERY_BROKER_CONNECTION_TIMEOUT = 2
-CELERY_BROKER_CONNECTION_RETRY_ON_START = True
+# CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
+# CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://127.0.0.1:6379/0")
+# CELERY_BROKER_CONNECTION_TIMEOUT = 2
+# CELERY_BROKER_CONNECTION_RETRY_ON_START = True
+# CELERY_ACCEPT_CONTENT = ['json']
+# CELERY_TASK_SERIALIZER = 'json'
+# CELERY_RESULT_SERIALIZER = 'json'
+# CELERY_TIMEZONE = "Asia/Dhaka"
+# CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+CELERY_BROKER_URL = "redis://redis:6379/0"
+CELERY_RESULT_BACKEND = "redis://redis:6379/0"
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = "Asia/Dhaka"
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
-
 
 
 CELERY_BEAT_SCHEDULE = {
@@ -291,15 +318,23 @@ CELERY_BEAT_SCHEDULE = {
 
 
 
+# CHANNEL_LAYERS = {
+#     "default": {
+#         "BACKEND": "channels_redis.core.RedisChannelLayer",
+#         "CONFIG": {
+#             "hosts": [(os.environ.get("REDIS_HOST", "127.0.0.1"), 6379)],
+#         },
+#     },
+# }
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [(os.environ.get("REDIS_HOST", "127.0.0.1"), 6379)],
+            "hosts": [("redis", 6379)],
         },
     },
 }
-
 
 DB_USER = os.getenv('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
@@ -350,3 +385,10 @@ HYPERPAY_ENTITY_IDS = {
 
 # Omniful Settings
 OMNIFUL_API_KEY = os.getenv('OMNIFUL_API_KEY', '')
+
+# CORS & CSRF overrides for ngrok
+CORS_ALLOW_ALL_ORIGINS = True
+CSRF_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_SECURE = True
