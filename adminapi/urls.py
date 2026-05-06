@@ -8,6 +8,7 @@ from . import views
 urlpatterns = [
     # Members
     path("users/", UserListApiView.as_view(), name="user-list"),
+    path("users/<str:membership_id>/", views.UserDetailApiView.as_view(), name="user-detail"),
     path("users/<str:membership_id>/delete/", UserDeleteApiView.as_view(), name="user-delete"),
 
     # Customers
