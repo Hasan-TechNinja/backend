@@ -71,6 +71,13 @@ INSTALLED_APPS = [
     'shop'
 ]
 
+
+CORS_ORIGIN_ALLOW_ALL = True
+CORS_URLS_REGEX = r'^.*$'
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^http://localhost:.*$",
+    r"^http://127.0.0.1:.*$",
+]
 CORS_ALLOWED_ORIGINS = [
     "https://api.glowmi.net",
     "https://97bc-103-186-20-8.ngrok-free.app",
@@ -80,13 +87,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3001",
     "http://localhost:3200",
     "http://127.0.0.1:3200",
-]
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ORIGIN_ALLOW_ALL = True
-CORS_URLS_REGEX = r'^.*$'
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^http://localhost:.*$",
-    r"^http://127.0.0.1:.*$",
+    "https://*.trycloudflare.com",
+    "http://10.10.13.61"
 ]
 
 MIDDLEWARE = [
@@ -247,7 +249,7 @@ REST_FRAMEWORK = {
 
 #Swagger 
 SWAGGER_SETTINGS = {
-    # 'DEFAULT_API_URL': 'https://97bc-103-186-20-8.ngrok-free.app/',
+    'DEFAULT_API_URL': 'https://api.glowmi.net/',
     'SCHEMES': ['https'],
     'SECURITY_DEFINITIONS': {
         'Bearer': {
