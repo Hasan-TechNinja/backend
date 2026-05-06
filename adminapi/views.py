@@ -1,3 +1,4 @@
+from django.http import Http404
 from rest_framework import generics
 from account.models import User, PrivacyPolicy, TermsAndConditions
 from .serializers import UserListSerializer, PrivacyPolicyListSerializer, TermsAndConditionsListSerializer, CustomerListSerializer, UserDetailSerializer, AnalyserListSerializer, AnalyserDetailSerializer
@@ -26,7 +27,22 @@ class UserListApiView(generics.ListAPIView):
 class UserDeleteApiView(generics.DestroyAPIView):
     permission_classes = [permissions.IsAdminRole]
     queryset = User.objects.filter(role='user')
-    lookup_field = 'pk'
+
+    def get_object(self):
+        membership_id = self.kwargs.get('membership_id')
+        if membership_id:
+            if membership_id.startswith('G'):
+                try:
+                    user_id = int(membership_id[1:])
+                    return User.objects.filter(role='user').get(id=user_id)
+                except (ValueError, User.DoesNotExist):
+                    raise Http404
+            else:
+                try:
+                    return User.objects.filter(role='user').get(pk=membership_id)
+                except (ValueError, User.DoesNotExist):
+                    raise Http404
+        return super().get_object()
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -121,7 +137,23 @@ class UserDetailApiView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAdminRole]
     serializer_class = UserDetailSerializer
     queryset = User.objects.all().select_related('profile')
-    lookup_field = 'pk'
+    
+    def get_object(self):
+        membership_id = self.kwargs.get('membership_id')
+        if membership_id:
+            if membership_id.startswith('G'):
+                try:
+                    user_id = int(membership_id[1:])
+                    return User.objects.select_related('profile').get(id=user_id)
+                except (ValueError, User.DoesNotExist):
+                    raise Http404
+            else:
+                # Fallback to PK if it's not a G-formatted ID
+                try:
+                    return User.objects.select_related('profile').get(pk=membership_id)
+                except (ValueError, User.DoesNotExist):
+                    raise Http404
+        return super().get_object()
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)

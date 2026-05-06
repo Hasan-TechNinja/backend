@@ -31,6 +31,7 @@ class TermsAndConditionsListSerializer(serializers.ModelSerializer):
 
 
 class CustomerListSerializer(serializers.ModelSerializer):
+    membership_id = serializers.SerializerMethodField()
     customer_name = serializers.CharField(source='profile.full_name', read_only=True)
     orders = serializers.IntegerField(source='orders_count', read_only=True)
     total_spent = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
@@ -40,7 +41,10 @@ class CustomerListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'id_format', 'customer_name', 'location', 'orders', 'total_spent', 'phone_number']
+        fields = ['id', 'membership_id', 'id_format', 'customer_name', 'location', 'orders', 'total_spent', 'phone_number']
+
+    def get_membership_id(self, obj):
+        return f"G{obj.id:04d}"
 
     def get_id_format(self, obj):
         return f"#{obj.username}" if obj.username else f"#{obj.id}"
@@ -62,6 +66,7 @@ class CustomerListSerializer(serializers.ModelSerializer):
 
 
 class UserDetailSerializer(serializers.ModelSerializer):
+    membership_id = serializers.SerializerMethodField()
     name = serializers.CharField(source='profile.full_name', read_only=True)
     contact_number = serializers.CharField(source='profile.contact_number', read_only=True)
     skin_type = serializers.CharField(source='profile.skin_type', read_only=True)
@@ -72,7 +77,10 @@ class UserDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'name', 'contact_number', 'skin_type', 'birth_date', 'address', 'order_count', 'total_spent']
+        fields = ['id', 'membership_id', 'email', 'name', 'contact_number', 'skin_type', 'birth_date', 'address', 'order_count', 'total_spent']
+
+    def get_membership_id(self, obj):
+        return f"G{obj.id:04d}"
 
     def get_address(self, obj):
         latest_order = obj.orders.order_by('-created_at').first()
