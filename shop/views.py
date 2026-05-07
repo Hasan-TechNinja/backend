@@ -431,12 +431,11 @@ class GenerateAIRoutineView(APIView):
                         step["how_to_use"] = db_prod.how_to_use if db_prod.how_to_use else step.get("rationale", "")
         
         from .models import GeneratedRoutine
-        if request.user and request.user.is_authenticated:
-            GeneratedRoutine.objects.create(
-                user=request.user,
-                skin_profile=user_profile,
-                routine_data=routine
-            )
+        GeneratedRoutine.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            skin_profile=user_profile,
+            routine_data=routine
+        )
 
         return success_response(
             message="Routine generated successfully",

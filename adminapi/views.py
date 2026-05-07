@@ -242,10 +242,11 @@ class AIAnalyticsProductListView(APIView):
         def count_products(routines):
             counts = {}
             for r in routines:
-                if not r.routine_data:
-                    continue
-                # JSON fields could be dicts or strings depending on DB
                 data = r.routine_data
+                if not data:
+                    continue
+                
+                # Ensure data is a dict
                 if isinstance(data, str):
                     import json
                     try:
@@ -253,9 +254,15 @@ class AIAnalyticsProductListView(APIView):
                     except json.JSONDecodeError:
                         continue
                 
-                am_steps = data.get('am_routine', []) if isinstance(data, dict) else []
-                pm_steps = data.get('pm_routine', []) if isinstance(data, dict) else []
+                if not isinstance(data, dict):
+                    continue
+
+                am_steps = data.get('am_routine', [])
+                pm_steps = data.get('pm_routine', [])
                 
+                # Use a set to count unique product recommendations per routine session 
+                # OR count total occurrences. The screenshot suggests high numbers, 
+                # so total occurrences across all steps is likely intended.
                 for step in am_steps + pm_steps:
                     if isinstance(step, dict):
                         pid = step.get('product_id')
@@ -267,7 +274,9 @@ class AIAnalyticsProductListView(APIView):
         previous_counts = count_products(routines_previous)
         all_counts = count_products(routines_all)
 
-        products = Product.objects.select_related('category').filter(id__in=all_counts.keys())
+        # Fetch products that have at least one recommendation
+        recommended_pids = list(all_counts.keys())
+        products = Product.objects.select_related('category').prefetch_related('images').filter(id__in=recommended_pids)
         
         result = []
         category_performance = {}
@@ -285,6 +294,7 @@ class AIAnalyticsProductListView(APIView):
             category_performance[cat_name]["current"] += cur
             category_performance[cat_name]["previous"] += prev
 
+            # Calculate trend
             if prev == 0:
                 trend_val = 100.0 if cur > 0 else 0.0
             else:
@@ -294,14 +304,29 @@ class AIAnalyticsProductListView(APIView):
             if trend_val == 0:
                 trend_str = "0.0%"
 
+            # Extract 'Top for' info from key_benefits or sub_title
+            top_for = p.key_benefits if p.key_benefits else ""
+            if len(top_for) > 60:
+                top_for = top_for[:57] + "..."
+            
+            # Get first image URL
+            image_url = ""
+            first_image = p.images.first()
+            if first_image and first_image.image:
+                image_url = request.build_absolute_uri(first_image.image.url)
+
             result.append({
                 "id": p.id,
                 "product_name": p.title,
+                "sub_title": p.sub_title,
                 "category": cat_name,
                 "recommendations": total_recs,
-                "trend": trend_str
+                "trend": trend_str,
+                "top_for": top_for,
+                "image": image_url
             })
 
+        # Sort by total recommendations descending
         result.sort(key=lambda x: x['recommendations'], reverse=True)
 
         performance_list = [
