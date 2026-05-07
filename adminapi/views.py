@@ -246,7 +246,7 @@ class AIAnalyticsProductListView(APIView):
                 if not data:
                     continue
                 
-                # Ensure data is a dict
+                # Handle cases where routine_data might be a string (SQLite/Mismatched migrations)
                 if isinstance(data, str):
                     import json
                     try:
@@ -260,14 +260,18 @@ class AIAnalyticsProductListView(APIView):
                 am_steps = data.get('am_routine', [])
                 pm_steps = data.get('pm_routine', [])
                 
-                # Use a set to count unique product recommendations per routine session 
-                # OR count total occurrences. The screenshot suggests high numbers, 
-                # so total occurrences across all steps is likely intended.
+                if not isinstance(am_steps, list): am_steps = []
+                if not isinstance(pm_steps, list): pm_steps = []
+
                 for step in am_steps + pm_steps:
                     if isinstance(step, dict):
                         pid = step.get('product_id')
-                        if pid:
-                            counts[pid] = counts.get(pid, 0) + 1
+                        if pid is not None:
+                            try:
+                                pid_int = int(pid)
+                                counts[pid_int] = counts.get(pid_int, 0) + 1
+                            except (ValueError, TypeError):
+                                continue
             return counts
 
         current_counts = count_products(routines_current)
@@ -275,13 +279,23 @@ class AIAnalyticsProductListView(APIView):
         all_counts = count_products(routines_all)
 
         # Fetch products that have at least one recommendation
+        # Convert keys to list of ints for strict DB compatibility
         recommended_pids = list(all_counts.keys())
+        
+        if not recommended_pids:
+            return success_response(
+                message="No AI Analytics data available yet",
+                data={"products": [], "performance_by_category": []},
+                status_code=status.HTTP_200_OK
+            )
+
         products = Product.objects.select_related('category').prefetch_related('images').filter(id__in=recommended_pids)
         
         result = []
         category_performance = {}
 
         for p in products:
+            # Use int key for lookup since we converted all_counts keys to int
             total_recs = all_counts.get(p.id, 0)
             cur = current_counts.get(p.id, 0)
             prev = previous_counts.get(p.id, 0)
@@ -330,8 +344,8 @@ class AIAnalyticsProductListView(APIView):
         result.sort(key=lambda x: x['recommendations'], reverse=True)
 
         performance_list = [
-            {"category": cat, "current": counts["current"], "previous": counts["previous"]}
-            for cat, counts in category_performance.items()
+            {"category": cat, "current": c_counts["current"], "previous": c_counts["previous"]}
+            for cat, c_counts in category_performance.items()
         ]
 
         response_data = {
