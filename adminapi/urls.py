@@ -1,13 +1,13 @@
 from django.urls import path
 from category.views import CategoryRetrieveUpdateDeleteApiView
 from product.views import ProductCreateAndListApiView,ProductRetrieveUpdateDestroyApiView
-from .views import UserListApiView, UserDeleteApiView, CategoryListCreateApiView, CustomerListApiView
+from .views import UserListCreateApiView, UserDeleteApiView, CategoryListCreateApiView, CustomerListApiView
 from . import views
 
 
 urlpatterns = [
     # Members
-    path("users/", UserListApiView.as_view(), name="user-list"),
+    path("users/", UserListCreateApiView.as_view(), name="user-list"),
     path("users/<str:membership_id>/", views.UserDetailApiView.as_view(), name="user-detail"),
     path("users/<str:membership_id>/delete/", UserDeleteApiView.as_view(), name="user-delete"),
 

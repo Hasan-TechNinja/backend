@@ -1,7 +1,11 @@
 from django.http import Http404
 from rest_framework import generics
 from account.models import User, PrivacyPolicy, TermsAndConditions
-from .serializers import UserListSerializer, PrivacyPolicyListSerializer, TermsAndConditionsListSerializer, CustomerListSerializer, UserDetailSerializer, AnalyserListSerializer, AnalyserDetailSerializer
+from .serializers import (
+    UserListSerializer, PrivacyPolicyListSerializer, TermsAndConditionsListSerializer, 
+    CustomerListSerializer, UserDetailSerializer, AnalyserListSerializer, 
+    AnalyserDetailSerializer, AdminUserSerializer
+)
 from account import permissions
 from category.models import Category
 from category.serializers import Categorylistserializer
@@ -17,16 +21,31 @@ from shop.models import Order
 
 # Create your views here.
 
-class UserListApiView(generics.ListAPIView):
+class UserListCreateApiView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAdminRole]
-    serializer_class = UserListSerializer
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return AdminUserSerializer
+        return UserListSerializer
 
     def get_queryset(self):
-        return User.objects.filter(role='user').select_related('profile').order_by('-id')
+        # Return both users and admins as the admin can now create both
+        return User.objects.filter(role__in=['user', 'admin']).select_related('profile').order_by('-id')
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return success_response(
+            message="User created successfully",
+            data=serializer.data,
+            status_code=status.HTTP_201_CREATED
+        )
 
 class UserDeleteApiView(generics.DestroyAPIView):
     permission_classes = [permissions.IsAdminRole]
-    queryset = User.objects.filter(role='user')
+    queryset = User.objects.filter(role__in=['user', 'admin'])
 
     def get_object(self):
         membership_id = self.kwargs.get('membership_id')
@@ -34,12 +53,12 @@ class UserDeleteApiView(generics.DestroyAPIView):
             if membership_id.startswith('G'):
                 try:
                     user_id = int(membership_id[1:])
-                    return User.objects.filter(role='user').get(id=user_id)
+                    return User.objects.filter(role__in=['user', 'admin']).get(id=user_id)
                 except (ValueError, User.DoesNotExist):
                     raise Http404
             else:
                 try:
-                    return User.objects.filter(role='user').get(pk=membership_id)
+                    return User.objects.filter(role__in=['user', 'admin']).get(pk=membership_id)
                 except (ValueError, User.DoesNotExist):
                     raise Http404
         return super().get_object()
@@ -135,8 +154,12 @@ class CustomerListApiView(generics.ListAPIView):
 
 class UserDetailApiView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAdminRole]
-    serializer_class = UserDetailSerializer
     queryset = User.objects.all().select_related('profile')
+    
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            return AdminUserSerializer
+        return UserDetailSerializer
     
     def get_object(self):
         membership_id = self.kwargs.get('membership_id')
