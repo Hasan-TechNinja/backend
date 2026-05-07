@@ -146,7 +146,6 @@ class AdminUserSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'email': {'required': True},
             'role': {'required': True},
-            'is_active': {'read_only': True}
         }
 
     def get_membership_id(self, obj):
@@ -207,6 +206,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
         # Update User fields
         instance.email = validated_data.get('email', instance.email)
         instance.role = validated_data.get('role', instance.role)
+        instance.is_active = validated_data.get('is_active', instance.is_active)
         
         if password:
             instance.set_password(password)
