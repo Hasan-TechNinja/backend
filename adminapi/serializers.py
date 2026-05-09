@@ -222,3 +222,40 @@ class AdminUserSerializer(serializers.ModelSerializer):
         profile.save()
 
         return instance
+
+
+# Orders
+from shop.models import Order, OrderItem
+
+
+class OrderItemForAdminSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.title', read_only=True)
+
+    class Meta:
+        model = OrderItem
+        fields = ['id', 'product', 'product_name', 'quantity', 'price']
+
+
+class OrderListSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    user_membership = serializers.SerializerMethodField()
+    items = OrderItemForAdminSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'user', 'user_email', 'user_membership', 'total_amount', 'status',
+            'full_name', 'phone', 'address_line1', 'address_line2', 'city', 'state', 'postal_code',
+            'country', 'created_at', 'updated_at', 'items'
+        ]
+
+    def get_user_membership(self, obj):
+        return f"G{obj.user.id:04d}"
+
+
+class OrderStatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=Order.STATUS_CHOICES)
+
+    def validate_status(self, value):
+        # Normalize to lower-case stored values
+        return value

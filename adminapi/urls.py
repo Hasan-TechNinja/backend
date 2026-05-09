@@ -42,4 +42,8 @@ urlpatterns = [
 
     # Dashboard
     path("dashboard/summary/", views.DashboardSummaryView.as_view(), name="dashboard-summary"),
+    
+    # Orders
+    path("orders/", views.OrderListApiView.as_view(), name="order-list"),
+    path("orders/<int:pk>/mark-delivered/", views.OrderMarkDeliveredAPIView.as_view(), name="order-mark-delivered"),
 ]

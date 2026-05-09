@@ -18,6 +18,7 @@ from django.utils import timezone
 from datetime import timedelta
 from rest_framework.views import APIView
 from shop.models import Order
+from .serializers import OrderListSerializer
 
 # Create your views here.
 
@@ -422,5 +423,39 @@ class DashboardSummaryView(APIView):
         return success_response(
             message="Dashboard summary fetched successfully",
             data=data,
+            status_code=status.HTTP_200_OK
+        )
+
+
+class OrderListApiView(generics.ListAPIView):
+    permission_classes = [permissions.IsAdminRole]
+    serializer_class = OrderListSerializer
+
+    def get_queryset(self):
+        return Order.objects.select_related('user').prefetch_related('items__product').order_by('-created_at')
+
+
+class OrderMarkDeliveredAPIView(APIView):
+    permission_classes = [permissions.IsAdminRole]
+
+    def post(self, request, pk):
+        try:
+            order = Order.objects.get(pk=pk)
+        except Order.DoesNotExist:
+            raise Http404
+
+        if order.status == 'delivered':
+            return success_response(
+                message="Order already delivered",
+                data=OrderListSerializer(order).data,
+                status_code=status.HTTP_200_OK
+            )
+
+        order.status = 'delivered'
+        order.save()
+
+        return success_response(
+            message="Order marked as delivered",
+            data=OrderListSerializer(order).data,
             status_code=status.HTTP_200_OK
         )

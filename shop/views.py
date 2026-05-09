@@ -1,7 +1,7 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
@@ -358,6 +358,7 @@ class OrderListView(APIView):
         )
 
 class GenerateAIRoutineView(APIView):
+    permission_classes = [AllowAny]
     @swagger_auto_schema(
         operation_summary="Generate AI Skin Routine",
         operation_description="Submit user skin profile to get an AI generated routine.",
