@@ -20,6 +20,9 @@ from django.conf import settings
 from product.models import Product
 from skincare.response import success_response
 from . import ai_engine
+from PIL import Image
+import io
+import base64
 class CartView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -378,45 +381,51 @@ class GenerateAIRoutineView(APIView):
             "skin_type": data.get("skin_type"),
             "concerns": data.get("concerns", []),
             "age": data.get("age"),
-            "allergies": [], 
+            "allergies": [],
+            "signup_data": f"Skin Type: {data.get('skin_type')}, Concerns: {data.get('concerns', [])}"
         }
         
         if data.get("additional_details"):
             user_profile["additional_details"] = data.get("additional_details")
 
-        products = Product.objects.all()
-        product_catalog = []
-        for p in products:
-            image_url = ""
-            if p.images.exists() and p.images.first().image:
-                image_url = request.build_absolute_uri(p.images.first().image.url)
-            
-            product_catalog.append({
-                "id": p.id,
-                "name": p.title,
-                "name_ar": p.title,
-                "type": p.category.name if p.category else "Skincare",
-                "ingredients": p.key_ingredients or "",
-                "benefits": p.key_benefits or "",
-                "safety": "",
-                "price": float(p.price) if p.price else 0.0,
-                "image_url": image_url,
-                "product_url": f"/product/{p.id}",
-            })
-            
-        user_image_b64 = None
+        # Fetch chat history and anchor if user is authenticated
+        chat_history = []
+        summary_anchor = ""
+        if request.user.is_authenticated:
+            from .models import ChatSession, ChatMessage
+            session, _ = ChatSession.objects.get_or_create(user=request.user)
+            summary_anchor = session.summary_anchor
+            messages = ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]
+            chat_history = [{"role": msg.role, "content": msg.content} for msg in reversed(messages)]
+
+        # Convert photo to PIL Image
+        pil_image = None
         photo = data.get("photo") or request.FILES.get("photo")
         if photo:
-            import base64
-            user_image_b64 = base64.b64encode(photo.read()).decode("utf-8")
+            try:
+                pil_image = Image.open(photo)
+            except Exception as e:
+                import logging
+                logging.error(f"Image open error: {e}")
             
-        routine = async_to_sync(ai_engine.generate_routine)(
-            user_profile, 
-            product_catalog,
-            user_image_b64=user_image_b64
+        routine_obj = async_to_sync(ai_engine.generate_routine)(
+            user_profile=user_profile, 
+            chat_history=chat_history,
+            summary_anchor=summary_anchor,
+            image=pil_image
         )
 
-        # Enrich routine output to match frontend UI requirements
+        if not routine_obj:
+            return Response({"error": "Failed to generate routine"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Convert RoutineSchema to dict and map to am/pm names for frontend compatibility
+        routine = {
+            "am_routine": [s.model_dump() for s in routine_obj.morning_routine],
+            "pm_routine": [s.model_dump() for s in routine_obj.evening_routine],
+            "reasoning": routine_obj.reasoning
+        }
+
+        # Enrich routine output
         for phase in ["am_routine", "pm_routine"]:
             for step in routine.get(phase, []):
                 pid = step.get("product_id")
@@ -426,10 +435,16 @@ class GenerateAIRoutineView(APIView):
                         brand = "PureGlow"
                         category = db_prod.category.name if db_prod.category else "Skincare"
                         
+                        step["product_name"] = db_prod.title
                         step["brand"] = brand
                         step["category"] = category
                         step["brand_type"] = db_prod.sub_title if db_prod.sub_title else f"{brand} • {category}"
-                        step["how_to_use"] = db_prod.how_to_use if db_prod.how_to_use else step.get("rationale", "")
+                        step["how_to_use"] = db_prod.how_to_use if db_prod.how_to_use else step.get("usage_instructions", "")
+                        
+                        if db_prod.images.exists() and db_prod.images.first().image:
+                            step["image_url"] = request.build_absolute_uri(db_prod.images.first().image.url)
+                        step["product_url"] = f"/product/{db_prod.id}"
+                        step["price"] = float(db_prod.price) if db_prod.price else 0.0
         
         from .models import GeneratedRoutine
         GeneratedRoutine.objects.create(

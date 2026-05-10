@@ -7,6 +7,9 @@ from .models import ChatSession, ChatMessage
 from product.models import Product
 from account.models import Profile
 from . import ai_engine
+from PIL import Image
+import io
+import base64
 
 User = get_user_model()
 
@@ -43,38 +46,73 @@ class AIChatConsumer(AsyncWebsocketConsumer):
             if not message and not image_b64:
                 return
                 
-            # Get user profile and product catalog
+            # Convert image if present
+            pil_image = None
+            if image_b64:
+                try:
+                    if "," in image_b64:
+                        image_b64 = image_b64.split(",", 1)[1]
+                    img_data = base64.b64decode(image_b64)
+                    pil_image = Image.open(io.BytesIO(img_data))
+                except Exception as e:
+                    logging.error(f"Image decode error: {e}")
+
+            # Get user profile
             user_profile = await self.build_user_profile(self.user.id)
-            product_catalog = await self.build_product_catalog()
             
             # Load chat history
             chat_history = await self.get_chat_history(self.session_id)
             summary_anchor = await self.get_summary_anchor(self.session_id)
             
-            # Call AI Engine
-            result = await ai_engine.chat_assistant(
-                user_input=message,
-                chat_history=chat_history,
-                summary_anchor=summary_anchor,
+            # Call Streaming AI Engine
+            full_response_text = ""
+            metadata = None
+            
+            async for chunk in ai_engine.stream_chat_assistant(
                 user_profile=user_profile,
-                product_catalog=product_catalog,
-                user_image_b64=image_b64
-            )
-            
-            reply = result.get("response", "")
-            updated_anchor = result.get("updated_summary_anchor", summary_anchor)
-            is_for_friend = result.get("is_for_friend", False)
-            
-            # Save exchange
-            await self.save_exchange(self.session_id, message, reply, is_for_friend, updated_anchor)
-            
-            # Send reply to client
-            await self.send(text_data=json.dumps({
-                'response': reply,
-                'is_for_friend': is_for_friend
-            }))
+                chat_history=chat_history,
+                current_prompt=message,
+                summary_anchor=summary_anchor,
+                image=pil_image
+            ):
+                if isinstance(chunk, str):
+                    full_response_text += chunk
+                    await self.send(text_data=json.dumps({
+                        'type': 'chunk',
+                        'content': chunk
+                    }))
+                else:
+                    metadata = chunk
+
+            if metadata:
+                reply = metadata.full_response
+                is_for_friend = metadata.is_for_friend
+                
+                # Option B: Only update anchor if history has reached the threshold (10 messages)
+                # This saves quota while ensuring long-term memory is eventually captured.
+                if not is_for_friend and len(chat_history) >= 10 and len(chat_history) % 10 == 0:
+                    updated_anchor = await ai_engine.update_summary_anchor(
+                        user_profile=user_profile,
+                        chat_history=chat_history + [{"role": "user", "content": message}, {"role": "assistant", "content": reply}],
+                        current_anchor=summary_anchor
+                    )
+                else:
+                    updated_anchor = summary_anchor
+                
+                # Save exchange
+                await self.save_exchange(self.session_id, message, reply, is_for_friend, updated_anchor)
+                
+                # Send final metadata
+                await self.send(text_data=json.dumps({
+                    'type': 'final',
+                    'response': reply,
+                    'is_for_friend': is_for_friend,
+                    'product_references': [p.model_dump() for p in metadata.product_references],
+                    'triggers_routine': metadata.triggers_routine
+                }))
+                
         except json.JSONDecodeError:
-            await self.send(text_data=json.dumps({"error": "Invalid JSON format. Expected an object like {'message': '...'}."}))
+            await self.send(text_data=json.dumps({"error": "Invalid JSON format."}))
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -126,17 +164,21 @@ class AIChatConsumer(AsyncWebsocketConsumer):
                 "is_pregnant": False,
             }
             
+        signup_data = f"Full Name: {profile.full_name or user.get_full_name()}, Gender: {profile.gender}, Skin Type: {profile.skin_type}"
+        
         return {
             "language": getattr(profile, "language", "en") if hasattr(profile, 'language') else "en",
             "full_name": profile.full_name or user.get_full_name(),
             "gender": profile.gender,
             "age": 29, 
             "skin_type": profile.skin_type,
+            "concerns": [], # Should be fetched from profile if available
             "allergies": [],
             "climate": getattr(profile, "climate", ""),
             "sensitivity_level": getattr(profile, "sensitivity_level", "low") if hasattr(profile, 'sensitivity_level') else "low",
             "account_tenure_days": tenure,
-            "is_pregnant": False, 
+            "is_pregnant": False,
+            "signup_data": signup_data
         }
 
     @database_sync_to_async
