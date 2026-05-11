@@ -11,14 +11,16 @@ from category.models import Category
 from category.serializers import Categorylistserializer
 from skincare.response import success_response
 from rest_framework import status
-from django.db.models import Count, Sum
+from django.db.models import Count, Sum, Q
+from django.db.models.functions import ExtractMonth, ExtractDay, ExtractWeekDay
 from shop.models import GeneratedRoutine
 from product.models import Product
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta, datetime
 from rest_framework.views import APIView
 from shop.models import Order
 from .serializers import OrderListSerializer
+import calendar
 
 # Create your views here.
 
@@ -401,11 +403,61 @@ class DashboardSummaryView(APIView):
         if total_customers > 0:
             conversion_rate = (paid_orders / total_customers) * 100
 
-        # 6. Performance (Last 5 days)
-        five_days_ago = timezone.now() - timedelta(days=5)
-        new_orders_count = Order.objects.filter(created_at__gte=five_days_ago).count()
-        shipped_orders_count = Order.objects.filter(status='shipped', created_at__gte=five_days_ago).count()
-        delivered_orders_count = Order.objects.filter(status='delivered', created_at__gte=five_days_ago).count()
+        # 6. Performance (Total counts by status)
+        new_orders_total = Order.objects.filter(status__in=['pending', 'paid']).count()
+        shipped_orders_total = Order.objects.filter(status='shipped').count()
+        delivered_orders_total = Order.objects.filter(status='delivered').count()
+        cancelled_orders_total = Order.objects.filter(status='cancelled').count()
+
+        # 7. Sale Chart (Monthly Revenue for current vs last year)
+        current_year = timezone.now().year
+        last_year = current_year - 1
+        month_abbr = list(calendar.month_abbr)[1:]
+
+        this_year_revenue = Order.objects.filter(
+            status__in=['paid', 'shipped', 'delivered', 'completed'],
+            created_at__year=current_year
+        ).annotate(month=ExtractMonth('created_at')).values('month').annotate(total=Sum('total_amount'))
+        
+        last_year_revenue = Order.objects.filter(
+            status__in=['paid', 'shipped', 'delivered', 'completed'],
+            created_at__year=last_year
+        ).annotate(month=ExtractMonth('created_at')).values('month').annotate(total=Sum('total_amount'))
+        
+        this_year_dict = {item['month']: float(item['total'] or 0) for item in this_year_revenue}
+        last_year_dict = {item['month']: float(item['total'] or 0) for item in last_year_revenue}
+        
+        sale_chart = []
+        for i in range(1, 13):
+            sale_chart.append({
+                "month": month_abbr[i-1],
+                "thisMonth": round(this_year_dict.get(i, 0.0), 2),
+                "lastMonth": round(last_year_dict.get(i, 0.0), 2)
+            })
+
+        # 8. Order Chart (Last 7 days vs Previous 7 days)
+        today = timezone.now().date()
+        this_week_start = today - timedelta(days=6)
+        last_week_start = today - timedelta(days=13)
+        last_week_end = today - timedelta(days=7)
+        
+        this_week_orders = Order.objects.filter(created_at__date__gte=this_week_start).values('created_at__date').annotate(count=Count('id'))
+        last_week_orders = Order.objects.filter(created_at__date__gte=last_week_start, created_at__date__lte=last_week_end).values('created_at__date').annotate(count=Count('id'))
+        
+        this_week_dict = {item['created_at__date']: item['count'] for item in this_week_orders}
+        last_week_dict = {item['created_at__date']: item['count'] for item in last_week_orders}
+        
+        order_chart = []
+        for i in range(7):
+            current_day = this_week_start + timedelta(days=i)
+            prev_day = current_day - timedelta(days=7)
+            
+            order_chart.append({
+                "day": i + 1,
+                "thisWeek": this_week_dict.get(current_day, 0),
+                "lastWeek": last_week_dict.get(prev_day, 0),
+                "label": current_day.strftime("%b %d")
+            })
 
         data = {
             "total_revenue": total_revenue,
@@ -414,10 +466,13 @@ class DashboardSummaryView(APIView):
             "product_views": total_views,
             "conversion_rate": round(conversion_rate, 3),
             "performance": {
-                "new_orders": new_orders_count,
-                "shipped_orders": shipped_orders_count,
-                "delivered_orders": delivered_orders_count
-            }
+                "new_orders": new_orders_total,
+                "shipped_orders": shipped_orders_total,
+                "delivered_orders": delivered_orders_total,
+                "cancelled_orders": cancelled_orders_total
+            },
+            "sale_chart": sale_chart,
+            "order_chart": order_chart
         }
 
         return success_response(
