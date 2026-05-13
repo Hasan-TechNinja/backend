@@ -1,4 +1,5 @@
 from rest_framework import status
+import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -405,7 +406,6 @@ class GenerateAIRoutineView(APIView):
             try:
                 pil_image = Image.open(photo)
             except Exception as e:
-                import logging
                 logging.error(f"Image open error: {e}")
             
         routine_obj = async_to_sync(ai_engine.generate_routine)(
