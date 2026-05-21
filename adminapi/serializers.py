@@ -15,7 +15,7 @@ class UserListSerializer(serializers.ModelSerializer):
         fields = ['membership_id', 'name', 'email', 'role', 'contact_number', 'skin_type', 'birth_date']
 
     def get_membership_id(self, obj):
-        return f"G{obj.id:04d}"
+        return obj.username
 
 
 class PrivacyPolicyListSerializer(serializers.ModelSerializer):
@@ -44,7 +44,7 @@ class CustomerListSerializer(serializers.ModelSerializer):
         fields = ['id', 'membership_id', 'id_format', 'customer_name', 'location', 'orders', 'total_spent', 'phone_number']
 
     def get_membership_id(self, obj):
-        return f"G{obj.id:04d}"
+        return obj.username
 
     def get_id_format(self, obj):
         return f"#{obj.username}" if obj.username else f"#{obj.id}"
@@ -82,7 +82,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
         fields = ['id', 'membership_id', 'email', 'role', 'name', 'contact_number', 'skin_type', 'birth_date', 'gender', 'image', 'address', 'order_count', 'total_spent']
 
     def get_membership_id(self, obj):
-        return f"G{obj.id:04d}"
+        return obj.username
 
     def get_address(self, obj):
         latest_order = obj.orders.order_by('-created_at').first()
@@ -149,7 +149,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
         }
 
     def get_membership_id(self, obj):
-        return f"G{obj.id:04d}"
+        return obj.username
 
     def validate(self, attrs):
         password = attrs.get('password')
@@ -250,7 +250,7 @@ class OrderListSerializer(serializers.ModelSerializer):
         ]
 
     def get_user_membership(self, obj):
-        return f"G{obj.user.id:04d}"
+        return obj.user.username
 
 
 class OrderStatusUpdateSerializer(serializers.Serializer):

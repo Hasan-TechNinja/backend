@@ -26,6 +26,7 @@ import calendar
 
 class UserListCreateApiView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAdminRole]
+    search_fields = ['username', 'email', 'profile__full_name']
     
     def get_serializer_class(self):
         if self.request.method == 'POST':
@@ -53,17 +54,20 @@ class UserDeleteApiView(generics.DestroyAPIView):
     def get_object(self):
         membership_id = self.kwargs.get('membership_id')
         if membership_id:
-            if membership_id.startswith('G'):
-                try:
-                    user_id = int(membership_id[1:])
-                    return User.objects.filter(role__in=['user', 'admin']).get(id=user_id)
-                except (ValueError, User.DoesNotExist):
-                    raise Http404
-            else:
-                try:
-                    return User.objects.filter(role__in=['user', 'admin']).get(pk=membership_id)
-                except (ValueError, User.DoesNotExist):
-                    raise Http404
+            try:
+                return User.objects.filter(role__in=['user', 'admin']).get(username=membership_id)
+            except User.DoesNotExist:
+                if membership_id.startswith('G'):
+                    try:
+                        user_id = int(membership_id[1:])
+                        return User.objects.filter(role__in=['user', 'admin']).get(id=user_id)
+                    except (ValueError, User.DoesNotExist):
+                        raise Http404
+                else:
+                    try:
+                        return User.objects.filter(role__in=['user', 'admin']).get(pk=membership_id)
+                    except (ValueError, User.DoesNotExist):
+                        raise Http404
         return super().get_object()
 
     def destroy(self, request, *args, **kwargs):
@@ -146,6 +150,7 @@ class TermsAndConditionsListCreateApiView(generics.ListCreateAPIView, generics.R
 class CustomerListApiView(generics.ListAPIView):
     permission_classes = [permissions.IsAdminRole]
     serializer_class = CustomerListSerializer
+    search_fields = ['username', 'email', 'profile__full_name']
 
     def get_queryset(self):
         # Customers who have purchased minimum one time
@@ -167,18 +172,21 @@ class UserDetailApiView(generics.RetrieveUpdateDestroyAPIView):
     def get_object(self):
         membership_id = self.kwargs.get('membership_id')
         if membership_id:
-            if membership_id.startswith('G'):
-                try:
-                    user_id = int(membership_id[1:])
-                    return User.objects.select_related('profile').get(id=user_id)
-                except (ValueError, User.DoesNotExist):
-                    raise Http404
-            else:
-                # Fallback to PK if it's not a G-formatted ID
-                try:
-                    return User.objects.select_related('profile').get(pk=membership_id)
-                except (ValueError, User.DoesNotExist):
-                    raise Http404
+            try:
+                return User.objects.select_related('profile').get(username=membership_id)
+            except User.DoesNotExist:
+                if membership_id.startswith('G'):
+                    try:
+                        user_id = int(membership_id[1:])
+                        return User.objects.select_related('profile').get(id=user_id)
+                    except (ValueError, User.DoesNotExist):
+                        raise Http404
+                else:
+                    # Fallback to PK if it's not a G-formatted ID
+                    try:
+                        return User.objects.select_related('profile').get(pk=membership_id)
+                    except (ValueError, User.DoesNotExist):
+                        raise Http404
         return super().get_object()
 
     def update(self, request, *args, **kwargs):
