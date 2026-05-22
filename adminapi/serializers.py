@@ -233,10 +233,20 @@ from shop.models import Order, OrderItem
 
 class OrderItemForAdminSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.title', read_only=True)
+    product_image = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'product', 'product_name', 'quantity', 'price']
+        fields = ['id', 'product', 'product_name', 'product_image', 'quantity', 'price']
+
+    def get_product_image(self, obj):
+        request = self.context.get('request')
+        first_image = obj.product.images.first()
+        if first_image and first_image.image:
+            if request:
+                return request.build_absolute_uri(first_image.image.url)
+            return first_image.image.url
+        return None
 
 
 class OrderListSerializer(serializers.ModelSerializer):

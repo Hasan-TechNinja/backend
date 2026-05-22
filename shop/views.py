@@ -185,6 +185,10 @@ class InitiateCheckoutView(APIView):
                 
                 if payment_brand == 'COD':
                     # Cash on Delivery logic
+                    for item in order.items.all():
+                        item.product.order_count += item.quantity
+                        item.product.save(update_fields=['order_count'])
+                        
                     Cart.objects.filter(user=request.user).delete()
                     sync_order_to_omniful.delay(order.id)
                     
@@ -293,6 +297,11 @@ class PaymentCallbackView(APIView):
             with transaction.atomic():
                 order.status = 'paid'
                 order.save()
+                
+                # Update product order counts
+                for item in order.items.all():
+                    item.product.order_count += item.quantity
+                    item.product.save(update_fields=['order_count'])
                 
                 # Clear User's Cart
                 Cart.objects.filter(user=order.user).delete()
