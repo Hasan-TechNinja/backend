@@ -9,10 +9,11 @@ class UserListSerializer(serializers.ModelSerializer):
     contact_number = serializers.CharField(source='profile.contact_number', read_only=True)
     skin_type = serializers.CharField(source='profile.skin_type', read_only=True)
     birth_date = serializers.DateField(source='profile.date_of_birth', read_only=True, format="%d/%m/%Y")
+    join_date = serializers.DateTimeField(source='date_joined', read_only=True)
 
     class Meta:
         model = User
-        fields = ['membership_id', 'name', 'email', 'role', 'contact_number', 'skin_type', 'birth_date']
+        fields = ['membership_id', 'name', 'email', 'role', 'contact_number', 'skin_type', 'birth_date', 'join_date']
 
     def get_membership_id(self, obj):
         return obj.username
@@ -76,10 +77,11 @@ class UserDetailSerializer(serializers.ModelSerializer):
     address = serializers.SerializerMethodField()
     order_count = serializers.SerializerMethodField()
     total_spent = serializers.SerializerMethodField()
+    join_date = serializers.DateTimeField(source='date_joined', read_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'membership_id', 'email', 'role', 'name', 'contact_number', 'skin_type', 'birth_date', 'gender', 'image', 'address', 'order_count', 'total_spent']
+        fields = ['id', 'membership_id', 'email', 'role', 'name', 'contact_number', 'skin_type', 'birth_date', 'gender', 'image', 'address', 'order_count', 'total_spent', 'join_date']
 
     def get_membership_id(self, obj):
         return obj.username
@@ -131,6 +133,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
     birth_date = serializers.DateField(source='profile.date_of_birth', required=False, allow_null=True)
     gender = serializers.CharField(source='profile.gender', required=False, allow_null=True, allow_blank=True)
     image = serializers.ImageField(source='profile.image', required=False, allow_null=True)
+    join_date = serializers.DateTimeField(source='date_joined', read_only=True)
     
     password = serializers.CharField(write_only=True, required=False)
     confirm_password = serializers.CharField(write_only=True, required=False)
@@ -141,7 +144,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'membership_id', 'email', 'full_name', 'role', 
             'contact_number', 'skin_type', 'birth_date', 'gender', 'image',
-            'password', 'confirm_password', 'is_active'
+            'password', 'confirm_password', 'is_active', 'join_date'
         ]
         extra_kwargs = {
             'email': {'required': True},
