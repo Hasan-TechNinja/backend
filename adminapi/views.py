@@ -507,6 +507,46 @@ class OrderMarkDeliveredAPIView(APIView):
         except Order.DoesNotExist:
             raise Http404
 
+        status_input = request.data.get('status')
+        if status_input:
+            status_map = {
+                'pending': 'pending',
+                'shipped': 'shipped',
+                'delivered': 'delivered',
+                'cancelled': 'cancelled'
+            }
+            
+            # Normalize the status input
+            db_status = status_map.get(str(status_input).lower().strip())
+            
+            # Fallback if provided exact db status choices
+            if not db_status:
+                if str(status_input).lower().strip() in [s[0] for s in Order.STATUS_CHOICES]:
+                    db_status = str(status_input).lower().strip()
+                else:
+                    return success_response(
+                        message="Invalid status provided",
+                        data=None,
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            if order.status == db_status:
+                return success_response(
+                    message=f"Order is already {db_status}",
+                    data=OrderListSerializer(order).data,
+                    status_code=status.HTTP_200_OK
+                )
+            
+            order.status = db_status
+            order.save()
+
+            return success_response(
+                message=f"Order status updated to {db_status}",
+                data=OrderListSerializer(order).data,
+                status_code=status.HTTP_200_OK
+            )
+
+        # Fallback for previous behavior
         if order.status == 'delivered':
             return success_response(
                 message="Order already delivered",
