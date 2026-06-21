@@ -37,92 +37,32 @@ def send_otp_email(user_id, otp):
 @shared_task
 def send_welcome_email(user_id, lean="EN"):
     try:
+        from .email_templates import get_welcome_email_en, get_welcome_email_ar
+
         user = User.objects.get(id=user_id)
         profile = Profile.objects.get(user=user)
 
+        full_name = profile.full_name or user.username
+        phone = profile.contact_number or ''
+        membership_id = user.username
+        # Generate Circle ID: GC-XXXX from last 4 digits of membership ID
+        circle_id = f"GC-{membership_id}"
+        year = user.date_joined.year
+
         if lean == "AR":
-            subject = "مرحبًا بك في Glowmi ✨"
-
-            html_message = f"""
-            <html dir="rtl">
-            <body style="font-family: Arial; line-height:1.6; text-align:right;">
-
-                <h2>مرحبًا {profile.full_name or user.username} 👋</h2>
-
-                <p>نحن سعداء بانضمامك إلى <b>Glowmi</b>. شكرًا لانضمامك إلى مجتمعنا.</p>
-
-                <h3>📋 معلوماتك:</h3>
-
-                <table style="border-collapse: collapse;">
-                    <tr>
-                        <td><b>رقم العضوية:</b></td>
-                        <td style="padding-right:10px;">{user.username}</td>
-                    </tr>
-                    <tr>
-                        <td><b>الاسم:</b></td>
-                        <td style="padding-right:10px;">{profile.full_name or ''}</td>
-                    </tr>
-                    <tr>
-                        <td><b>البريد الإلكتروني:</b></td>
-                        <td style="padding-right:10px;">{user.email}</td>
-                    </tr>
-                    <tr>
-                        <td><b>الهاتف:</b></td>
-                        <td style="padding-right:10px;">{profile.contact_number or ''}</td>
-                    </tr>
-                </table>
-
-                <p>سيستخدم فريقنا هذه المعلومات لتقديم تجربة عناية بالبشرة أفضل لك.</p>
-
-                <p>مع أطيب التحيات،<br><b>فريق Glowmi ✨</b></p>
-
-            </body>
-            </html>
-            """
-
+            subject = "مرحبًا بك في Glowmi Circle ✨"
+            html_message = get_welcome_email_ar(
+                full_name, user.email, phone, membership_id, circle_id, year
+            )
         else:
-            subject = "Welcome to Glowmi ✨"
-
-            html_message = f"""
-            <html>
-            <body style="font-family: Arial; line-height:1.6;">
-
-                <h2>Hello {profile.full_name or user.username} 👋</h2>
-
-                <p>We are excited to welcome you to <b>Glowmi</b>. Thanks for joining us.</p>
-
-                <h3>📋 Your Information:</h3>
-
-                <table style="border-collapse: collapse;">
-                    <tr>
-                        <td><b>Membership ID:</b></td>
-                        <td style="padding-left:10px;">{user.username}</td>
-                    </tr>
-                    <tr>
-                        <td><b>Name:</b></td>
-                        <td style="padding-left:10px;">{profile.full_name or ''}</td>
-                    </tr>
-                    <tr>
-                        <td><b>Email:</b></td>
-                        <td style="padding-left:10px;">{user.email}</td>
-                    </tr>
-                    <tr>
-                        <td><b>Phone:</b></td>
-                        <td style="padding-left:10px;">{profile.contact_number or ''}</td>
-                    </tr>
-                </table>
-
-                <p>We will use this information to provide you with a better skincare experience.</p>
-
-                <p>Best Regards,<br><b>Glowmi Team ✨</b></p>
-
-            </body>
-            </html>
-            """
+            subject = "Welcome to Glowmi Circle ✨"
+            html_message = get_welcome_email_en(
+                full_name, user.email, phone, membership_id, circle_id, year
+            )
 
         email = EmailMultiAlternatives(
             subject=subject,
-            body="Welcome to Glowmi",  # fallback text
+            body="Welcome to Glowmi Circle",
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[user.email],
         )

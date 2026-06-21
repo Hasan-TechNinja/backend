@@ -291,7 +291,7 @@ else:
     EMAIL_HOST = 'smtp.office365.com'
 EMAIL_HOST_USER = os.getenv("EMAIL")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_PASSWORD")
-DEFAULT_FROM_EMAIL = os.getenv("EMAIL")
+DEFAULT_FROM_EMAIL = f'Glowmi Circle <{os.getenv("EMAIL")}>'
 
 
 
