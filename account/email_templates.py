@@ -19,17 +19,10 @@ def get_welcome_email_en(full_name, email, phone, membership_id, circle_id, year
 <!-- Header Logo -->
 <tr><td align="center" style="padding:40px 40px 10px;">
 <table cellpadding="0" cellspacing="0"><tr>
-<td align="center">{LOGO_HEADER}</td>
-</tr><tr>
-<td align="center" style="font-size:22px;letter-spacing:8px;color:#2c2c2c;font-weight:300;padding-top:8px;">GLOWMI</td>
+<td align="center" style="font-size:22px;letter-spacing:8px;color:#2c2c2c;font-weight:300;">GLOWMI</td>
 </tr><tr>
 <td align="center" style="font-size:11px;letter-spacing:2px;color:#888;padding-top:4px;">The Essence of Timeless Glow</td>
 </tr></table>
-</td></tr>
-
-<!-- Divider dot -->
-<tr><td align="center" style="padding:20px 0;">
-<span style="display:inline-block;width:8px;height:8px;background:#2c2c2c;border-radius:50%;"></span>
 </td></tr>
 
 <!-- Welcome + Card Section -->
@@ -164,17 +157,10 @@ def get_welcome_email_ar(full_name, email, phone, membership_id, circle_id, year
 <!-- Header Logo -->
 <tr><td align="center" style="padding:40px 40px 10px;">
 <table cellpadding="0" cellspacing="0"><tr>
-<td align="center">{LOGO_HEADER}</td>
-</tr><tr>
-<td align="center" style="font-size:22px;letter-spacing:8px;color:#2c2c2c;font-weight:300;padding-top:8px;">GLOWMI</td>
+<td align="center" style="font-size:22px;letter-spacing:8px;color:#2c2c2c;font-weight:300;">GLOWMI</td>
 </tr><tr>
 <td align="center" style="font-size:11px;letter-spacing:2px;color:#888;padding-top:4px;">جوهر التوهج الخالد</td>
 </tr></table>
-</td></tr>
-
-<!-- Divider dot -->
-<tr><td align="center" style="padding:20px 0;">
-<span style="display:inline-block;width:8px;height:8px;background:#2c2c2c;border-radius:50%;"></span>
 </td></tr>
 
 <!-- Welcome + Card Section -->

@@ -20,7 +20,7 @@ class User(AbstractUser):
 
     def generate_unique_username(self):
         while True:
-            username = str(random.randint(10000000, 99999999))
+            username = str(random.randint(100000, 999999))
             if not User.objects.filter(username=username).exists():
                 return username
 
