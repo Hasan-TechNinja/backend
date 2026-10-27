@@ -34,6 +34,7 @@ DEBUG = True
 ALLOWED_HOSTS = ["api.glowmi.net","localhost", "127.0.0.1", "10.10.13.61", "97bc-103-186-20-8.ngrok-free.app", "*", ".trycloudflare.com"]
 
 CSRF_TRUSTED_ORIGINS = [
+    "https://rumi-frontend-pi.vercel.app",
     "https://api.glowmi.net",
     "https://97bc-103-186-20-8.ngrok-free.app",
     "http://localhost:3000",
@@ -45,6 +46,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.trycloudflare.com",
     "http://10.10.13.61"
 ]
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -79,6 +81,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://127.0.0.1:.*$",
 ]
 CORS_ALLOWED_ORIGINS = [
+    "https://rumi-frontend-pi.vercel.app",
     "https://api.glowmi.net",
     "https://97bc-103-186-20-8.ngrok-free.app",
     "http://localhost:3000",
