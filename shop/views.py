@@ -9,7 +9,7 @@ from drf_yasg.utils import swagger_auto_schema
 import re
 from asgiref.sync import async_to_sync
 from django.db import transaction
-from .models import Cart, CartItem, Order, OrderItem, PaymentTransaction
+from .models import Cart, CartItem, Order, OrderItem, PaymentTransaction, ChatSession, ChatMessage, GeneratedRoutine
 from .serializers import (
     CartSerializer, CartItemSerializer, 
     OrderSerializer, CheckoutRequestSerializer,
@@ -21,9 +21,29 @@ from django.conf import settings
 from product.models import Product
 from skincare.response import success_response
 from . import ai_engine
+from .catalog import build_product_catalog, get_catalog_product
 from PIL import Image
 import io
 import base64
+def queue_order_sync(order_id):
+    """Push the order to the OMS after commit; never let a broker outage break checkout."""
+    def _send():
+        try:
+            sync_order_to_omniful.delay(order_id)
+        except Exception as e:
+            logging.error(f"Could not queue Omniful sync for order {order_id}: {e}")
+    transaction.on_commit(_send)
+
+
+def fulfil_order_stock(order):
+    """Decrement stock and bump best-seller counters for every item in the order."""
+    for item in order.items.all():
+        product = Product.objects.select_for_update().get(id=item.product_id)
+        product.stock = max(0, product.stock - item.quantity)
+        product.order_count += item.quantity
+        product.save(update_fields=['stock', 'order_count'])
+
+
 class CartView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -59,24 +79,30 @@ class CartView(APIView):
     def post(self, request):
         cart, _ = Cart.objects.get_or_create(user=request.user)
         product_id = request.data.get('product_id')
-        quantity = int(request.data.get('quantity', 1))
+        try:
+            quantity = int(request.data.get('quantity', 1))
+        except (TypeError, ValueError):
+            return Response({"error": "Quantity must be a number."}, status=status.HTTP_400_BAD_REQUEST)
+        if quantity < 1:
+            return Response({"error": "Quantity must be at least 1."}, status=status.HTTP_400_BAD_REQUEST)
 
         product = get_object_or_404(Product, id=product_id)
 
-        # Check stock availability
-        if product.stock < quantity:
+        cart_item = CartItem.objects.filter(cart=cart, product=product).first()
+        new_quantity = quantity + (cart_item.quantity if cart_item else 0)
+
+        # Check stock availability against the total quantity in the cart
+        if product.stock < new_quantity:
             return Response(
-                {"error": "Not enough stock available."},
+                {"error": f"Only {product.stock} left in stock."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        cart_item, created = CartItem.objects.get_or_create(cart=cart, product=product)
-        if not created:
-            cart_item.quantity += quantity
+        if cart_item:
+            cart_item.quantity = new_quantity
+            cart_item.save()
         else:
-            cart_item.quantity = quantity
-        
-        cart_item.save()
+            cart_item = CartItem.objects.create(cart=cart, product=product, quantity=quantity)
         
         serializer = CartItemSerializer(cart_item, context={'request': request})
         return success_response(
@@ -102,11 +128,16 @@ class CartView(APIView):
         cart = get_object_or_404(Cart, user=request.user)
         cart_item = get_object_or_404(CartItem, id=item_id, cart=cart)
         
-        quantity = int(request.data.get('quantity', cart_item.quantity))
-        
+        try:
+            quantity = int(request.data.get('quantity', cart_item.quantity))
+        except (TypeError, ValueError):
+            return Response({"error": "Quantity must be a number."}, status=status.HTTP_400_BAD_REQUEST)
+        if quantity < 1:
+            return Response({"error": "Quantity must be at least 1."}, status=status.HTTP_400_BAD_REQUEST)
+
         if cart_item.product.stock < quantity:
             return Response(
-                {"error": "Not enough stock available."},
+                {"error": f"Only {cart_item.product.stock} left in stock."},
                 status=status.HTTP_400_BAD_REQUEST
             )
             
@@ -158,6 +189,13 @@ class InitiateCheckoutView(APIView):
 
         payment_brand = serializer.validated_data['payment_brand']
 
+        for item in cart.items.select_related('product'):
+            if item.product.stock < item.quantity:
+                return Response(
+                    {"error": f"Only {item.product.stock} of {item.product.title} left in stock. Please update your cart."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         try:
             with transaction.atomic():
                 # Create Order
@@ -184,13 +222,10 @@ class InitiateCheckoutView(APIView):
                     )
                 
                 if payment_brand == 'COD':
-                    # Cash on Delivery logic
-                    for item in order.items.all():
-                        item.product.order_count += item.quantity
-                        item.product.save(update_fields=['order_count'])
-                        
+                    # Cash on Delivery: the order is confirmed straight away
+                    fulfil_order_stock(order)
                     Cart.objects.filter(user=request.user).delete()
-                    sync_order_to_omniful.delay(order.id)
+                    queue_order_sync(order.id)
                     
                     return success_response(
                         message="Order placed successfully with Cash on Delivery",
@@ -207,11 +242,17 @@ class InitiateCheckoutView(APIView):
                 
                 # Call HyperPay Service
                 hyperpay = HyperPayService()
+                name_parts = serializer.validated_data['full_name'].split(maxsplit=1)
                 hp_response = hyperpay.initiate_checkout(
                     amount=order.total_amount,
                     currency='SAR',
                     entity_id=entity_id,
-                    user_details=serializer.validated_data
+                    user_details={
+                        **serializer.validated_data,
+                        'email': request.user.email,
+                        'first_name': name_parts[0],
+                        'last_name': name_parts[1] if len(name_parts) > 1 else name_parts[0],
+                    }
                 )
                 
                 if not hp_response or 'id' not in hp_response:
@@ -239,6 +280,7 @@ class InitiateCheckoutView(APIView):
                     status_code=status.HTTP_201_CREATED
                 )
         except Exception as e:
+            logging.exception("Checkout failed")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -293,21 +335,15 @@ class PaymentCallbackView(APIView):
         # Success codes pattern for HyperPay
         success_pattern = re.compile(r"^(000\.000\.|000\.100\.1|000\.[36]|000\.400\.[01]|000\.200\.)")
         
-        if success_pattern.match(transaction_obj.result_code):
+        if success_pattern.match(transaction_obj.result_code or ''):
             with transaction.atomic():
-                order.status = 'paid'
-                order.save()
-                
-                # Update product order counts
-                for item in order.items.all():
-                    item.product.order_count += item.quantity
-                    item.product.save(update_fields=['order_count'])
-                
-                # Clear User's Cart
-                Cart.objects.filter(user=order.user).delete()
-                
-                # Trigger OMS Sync via Celery
-                sync_order_to_omniful.delay(order.id)
+                # The gateway may redirect more than once; only fulfil the order the first time
+                if order.status != 'paid':
+                    order.status = 'paid'
+                    order.save()
+                    fulfil_order_stock(order)
+                    Cart.objects.filter(user=order.user).delete()
+                    queue_order_sync(order.id)
             
             return success_response(
                 message="Payment successful and order confirmed",
@@ -363,7 +399,7 @@ class OrderListView(APIView):
     )
     def get(self, request):
         orders = Order.objects.filter(user=request.user).order_by('-created_at')
-        serializer = OrderSerializer(orders, many=True)
+        serializer = OrderSerializer(orders, many=True, context={"request": request})
         return success_response(
             message="Order list fetched successfully",
             data=serializer.data,
@@ -382,33 +418,31 @@ class GenerateAIRoutineView(APIView):
         serializer = AIRoutineRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
+
         data = serializer.validated_data
-        
+        language = 'ar' if (data.get("language") or "").lower().startswith("ar") else 'en'
+
         user_profile = {
-            "language": "en",
-            "is_pregnant": False, 
+            "language": language,
+            "is_pregnant": False,
             "skin_type": data.get("skin_type"),
             "concerns": data.get("concerns", []),
             "age": data.get("age"),
             "allergies": [],
-            "signup_data": f"Skin Type: {data.get('skin_type')}, Concerns: {data.get('concerns', [])}"
         }
-        
         if data.get("additional_details"):
             user_profile["additional_details"] = data.get("additional_details")
 
-        # Fetch chat history and anchor if user is authenticated
+        # Use the chat memory too when the user is signed in
         chat_history = []
         summary_anchor = ""
         if request.user.is_authenticated:
-            from .models import ChatSession, ChatMessage
-            session, _ = ChatSession.objects.get_or_create(user=request.user)
-            summary_anchor = session.summary_anchor
-            messages = ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]
-            chat_history = [{"role": msg.role, "content": msg.content} for msg in reversed(messages)]
+            session = ChatSession.objects.filter(user=request.user).first()
+            if session:
+                summary_anchor = session.summary_anchor
+                messages = ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]
+                chat_history = [{"role": msg.role, "content": msg.content} for msg in reversed(messages)]
 
-        # Convert photo to PIL Image
         pil_image = None
         photo = data.get("photo") or request.FILES.get("photo")
         if photo:
@@ -416,46 +450,46 @@ class GenerateAIRoutineView(APIView):
                 pil_image = Image.open(photo)
             except Exception as e:
                 logging.error(f"Image open error: {e}")
-            
+
+        base_url = request.build_absolute_uri("/").rstrip("/")
+        product_catalog = build_product_catalog(base_url)
+
         routine_obj = async_to_sync(ai_engine.generate_routine)(
-            user_profile=user_profile, 
+            user_profile=user_profile,
+            product_catalog=product_catalog,
             chat_history=chat_history,
             summary_anchor=summary_anchor,
-            image=pil_image
+            image=pil_image,
+            language=language,
         )
 
         if not routine_obj:
-            return Response({"error": "Failed to generate routine"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": "We couldn't prepare your routine right now. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
 
-        # Convert RoutineSchema to dict and map to am/pm names for frontend compatibility
         routine = {
             "am_routine": [s.model_dump() for s in routine_obj.morning_routine],
             "pm_routine": [s.model_dump() for s in routine_obj.evening_routine],
             "reasoning": routine_obj.reasoning
         }
 
-        # Enrich routine output
+        # Enrich each step with live product data
         for phase in ["am_routine", "pm_routine"]:
-            for step in routine.get(phase, []):
-                pid = step.get("product_id")
-                if pid:
-                    db_prod = Product.objects.filter(id=pid).first()
-                    if db_prod:
-                        brand = "PureGlow"
-                        category = db_prod.category.name if db_prod.category else "Skincare"
-                        
-                        step["product_name"] = db_prod.title
-                        step["brand"] = brand
-                        step["category"] = category
-                        step["brand_type"] = db_prod.sub_title if db_prod.sub_title else f"{brand} • {category}"
-                        step["how_to_use"] = db_prod.how_to_use if db_prod.how_to_use else step.get("usage_instructions", "")
-                        
-                        if db_prod.images.exists() and db_prod.images.first().image:
-                            step["image_url"] = request.build_absolute_uri(db_prod.images.first().image.url)
-                        step["product_url"] = f"/product/{db_prod.id}"
-                        step["price"] = float(db_prod.price) if db_prod.price else 0.0
-        
-        from .models import GeneratedRoutine
+            for step in routine[phase]:
+                product = get_catalog_product(product_catalog, step.get("product_id"))
+                if not product:
+                    continue
+                step["product_name"] = product["name"]
+                step["brand"] = "Glowmi"
+                step["category"] = product["category"]
+                step["brand_type"] = product["sub_title"] or f"Glowmi • {product['category']}"
+                step["how_to_use"] = step.get("usage_instructions") or product["how_to_use"]
+                step["image_url"] = product["image_url"]
+                step["product_url"] = product["product_url"]
+                step["price"] = product["price"]
+
         GeneratedRoutine.objects.create(
             user=request.user if request.user.is_authenticated else None,
             skin_profile=user_profile,

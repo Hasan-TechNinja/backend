@@ -37,9 +37,9 @@ def sync_order_to_omniful(self, order_id):
             'currency': 'SAR',
             'status': order.status,
             'customer': {
-                'first_name': order.first_name,
-                'last_name': order.last_name,
-                'email': order.email,
+                'first_name': order.full_name.split(maxsplit=1)[0] if order.full_name else '',
+                'last_name': order.full_name.split(maxsplit=1)[1] if len(order.full_name.split(maxsplit=1)) > 1 else '',
+                'email': order.user.email,
                 'phone': order.phone
             },
             'shipping_address': {

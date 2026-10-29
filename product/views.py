@@ -216,6 +216,7 @@ class ProductView(APIView):
             openapi.Parameter('skin_type', openapi.IN_QUERY, description="Filter by skin type (oily, dry, normal, combination, sensitive)", type=openapi.TYPE_STRING),
             openapi.Parameter('min_price', openapi.IN_QUERY, description="Filter by minimum price", type=openapi.TYPE_NUMBER),
             openapi.Parameter('max_price', openapi.IN_QUERY, description="Filter by maximum price", type=openapi.TYPE_NUMBER),
+            openapi.Parameter('ordering', openapi.IN_QUERY, description="Sort: best, new, price_asc, price_desc", type=openapi.TYPE_STRING),
             openapi.Parameter('page', openapi.IN_QUERY, description="Page number", type=openapi.TYPE_INTEGER),
             openapi.Parameter('page_size', openapi.IN_QUERY, description="Number of items per page", type=openapi.TYPE_INTEGER),
         ],
@@ -257,6 +258,16 @@ class ProductView(APIView):
         max_price = request.query_params.get('max_price', None)
         if max_price:
             queryset = queryset.filter(price__lte=max_price)
+
+        # Sorting
+        ordering = {
+            'best': ('-order_count', '-created_at'),
+            'new': ('-created_at',),
+            'price_asc': ('price',),
+            'price_desc': ('-price',),
+        }.get(request.query_params.get('ordering', ''))
+        if ordering:
+            queryset = queryset.order_by(*ordering)
             
         # Pagination
         from rest_framework.pagination import PageNumberPagination

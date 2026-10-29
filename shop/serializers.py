@@ -19,6 +19,12 @@ class CartItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Quantity must be at least 1.")
         return value
 
+    def to_representation(self, instance):
+        # product_id is write-only for input; the frontend also needs it to match cart rows
+        data = super().to_representation(instance)
+        data['product_id'] = instance.product_id
+        return data
+
 
 class CartSerializer(serializers.ModelSerializer):
     items = CartItemSerializer(many=True, read_only=True)
@@ -31,10 +37,18 @@ class CartSerializer(serializers.ModelSerializer):
 
 class OrderItemSerializer(serializers.ModelSerializer):
     product_name = serializers.ReadOnlyField(source='product.title')
+    product_image = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'product', 'product_name', 'quantity', 'price']
+        fields = ['id', 'product', 'product_name', 'product_image', 'quantity', 'price']
+
+    def get_product_image(self, obj):
+        image = obj.product.images.first()
+        if not image or not image.image:
+            return None
+        request = self.context.get('request')
+        return request.build_absolute_uri(image.image.url) if request else image.image.url
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
@@ -69,4 +83,5 @@ class AIRoutineRequestSerializer(serializers.Serializer):
     )
     additional_details = serializers.CharField(required=False, allow_blank=True)
     photo = serializers.ImageField(required=False, allow_null=True)
+    language = serializers.CharField(max_length=5, required=False, allow_blank=True)
 
