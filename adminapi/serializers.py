@@ -1,7 +1,11 @@
 from rest_framework import serializers
 from account.models import User, Profile, PrivacyPolicy, TermsAndConditions
 from django.db.models import Sum
-# from order.models import Order  
+from category.serializers import Categorylistserializer
+from shop.models import GeneratedRoutine, Order, OrderItem
+
+# Orders in these states never became a sale
+NON_SALE_STATUSES = ['cancelled', 'failed']
 
 class UserListSerializer(serializers.ModelSerializer):
     membership_id = serializers.SerializerMethodField()
@@ -77,11 +81,12 @@ class UserDetailSerializer(serializers.ModelSerializer):
     address = serializers.SerializerMethodField()
     order_count = serializers.SerializerMethodField()
     total_spent = serializers.SerializerMethodField()
+    orders = serializers.SerializerMethodField()
     join_date = serializers.DateTimeField(source='date_joined', read_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'membership_id', 'email', 'role', 'name', 'contact_number', 'skin_type', 'birth_date', 'gender', 'image', 'address', 'order_count', 'total_spent', 'join_date']
+        fields = ['id', 'membership_id', 'email', 'role', 'is_active', 'name', 'contact_number', 'skin_type', 'birth_date', 'gender', 'image', 'address', 'order_count', 'total_spent', 'orders', 'join_date']
 
     def get_membership_id(self, obj):
         return obj.username
@@ -97,7 +102,11 @@ class UserDetailSerializer(serializers.ModelSerializer):
         return obj.orders.count()
 
     def get_total_spent(self, obj):
-        return obj.orders.aggregate(total=Sum('total_amount'))['total'] or 0    
+        return obj.orders.exclude(status__in=NON_SALE_STATUSES).aggregate(total=Sum('total_amount'))['total'] or 0
+
+    def get_orders(self, obj):
+        orders = obj.orders.prefetch_related('items__product__images').order_by('-created_at')[:20]
+        return OrderListSerializer(orders, many=True, context=self.context).data
 
 
 class AnalyserListSerializer(serializers.ModelSerializer):
@@ -113,17 +122,56 @@ class AnalyserListSerializer(serializers.ModelSerializer):
         return "active" if obj.is_active else "inactive"
 
 
+class GeneratedRoutineSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GeneratedRoutine
+        fields = ['id', 'skin_profile', 'routine_data', 'created_at']
+
+
 class AnalyserDetailSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source='profile.full_name', read_only=True)
+    image = serializers.ImageField(source='profile.image', read_only=True)
     join_date = serializers.DateTimeField(source='date_joined', read_only=True)
     active_status = serializers.SerializerMethodField()
+    location = serializers.SerializerMethodField()
+    order_count = serializers.SerializerMethodField()
+    routines = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'full_name', 'email', 'join_date', 'active_status']
+        fields = ['id', 'full_name', 'email', 'image', 'join_date', 'active_status', 'location', 'order_count', 'routines']
 
     def get_active_status(self, obj):
         return "active" if obj.is_active else "inactive"
+
+    def get_location(self, obj):
+        latest_order = obj.orders.order_by('-created_at').first()
+        return latest_order.city if latest_order else ""
+
+    def get_order_count(self, obj):
+        return obj.orders.count()
+
+    def get_routines(self, obj):
+        return GeneratedRoutineSerializer(obj.routines.order_by('-created_at'), many=True).data
+
+
+class AdminCategorySerializer(Categorylistserializer):
+    """Adds the stock and sales columns shown on the dashboard category table."""
+    product_count = serializers.SerializerMethodField()
+    quantity = serializers.SerializerMethodField()
+    sale = serializers.SerializerMethodField()
+
+    class Meta(Categorylistserializer.Meta):
+        fields = Categorylistserializer.Meta.fields + ['product_count', 'quantity', 'sale']
+
+    def get_product_count(self, obj):
+        return getattr(obj, 'product_count', 0) or 0
+
+    def get_quantity(self, obj):
+        return getattr(obj, 'quantity', 0) or 0
+
+    def get_sale(self, obj):
+        return getattr(obj, 'sale', 0) or 0
 
 
 class AdminUserSerializer(serializers.ModelSerializer):
@@ -223,12 +271,25 @@ class AdminUserSerializer(serializers.ModelSerializer):
         for field, value in profile_data.items():
             setattr(profile, field, value)
         profile.save()
+        instance.profile = profile
 
         return instance
 
 
 # Orders
-from shop.models import Order, OrderItem
+
+def get_payment_status(order):
+    if order.status in NON_SALE_STATUSES:
+        return order.status
+    # Card payments are confirmed by the gateway; cash on delivery is collected on delivery
+    is_prepaid = getattr(order, 'payment_transaction', None) is not None
+    paid_statuses = ['paid', 'shipped', 'delivered'] if is_prepaid else ['paid', 'delivered']
+    return 'paid' if order.status in paid_statuses else 'pending'
+
+
+def get_payment_method(order):
+    transaction = getattr(order, 'payment_transaction', None)
+    return transaction.payment_brand if transaction else 'COD'
 
 
 class OrderItemForAdminSerializer(serializers.ModelSerializer):
@@ -252,18 +313,27 @@ class OrderItemForAdminSerializer(serializers.ModelSerializer):
 class OrderListSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source='user.email', read_only=True)
     user_membership = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()
+    payment_method = serializers.SerializerMethodField()
     items = OrderItemForAdminSerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
         fields = [
             'id', 'user', 'user_email', 'user_membership', 'total_amount', 'status',
+            'payment_status', 'payment_method',
             'full_name', 'phone', 'address_line1', 'address_line2', 'city', 'state', 'postal_code',
             'country', 'created_at', 'updated_at', 'items'
         ]
 
     def get_user_membership(self, obj):
         return obj.user.username
+
+    def get_payment_status(self, obj):
+        return get_payment_status(obj)
+
+    def get_payment_method(self, obj):
+        return get_payment_method(obj)
 
 
 class OrderStatusUpdateSerializer(serializers.Serializer):

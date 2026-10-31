@@ -5,6 +5,8 @@ from .models import Category
 from .serializers import CategoryCreateandUpdateserializer, Categorylistserializer
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.response import Response
+from shop.models import OrderItem
 from account.permissions import IsAdminRole, IsUserRole
 from rest_framework import permissions
 
@@ -128,6 +130,12 @@ class CategoryRetrieveUpdateDeleteApiView(APIView):
     )
     def delete(self, request, pk, *args, **kwargs):  
         category = get_object_or_404(Category, pk=pk)
+        # Products and their order lines cascade with the category
+        if OrderItem.objects.filter(product__category=category).exists():
+            return Response(
+                {"error": "This category has products with orders and can't be deleted."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         category.delete()
         return success_response(
             message="Category deleted successfully",

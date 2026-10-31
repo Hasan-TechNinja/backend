@@ -1,9 +1,12 @@
 from rest_framework.permissions import AllowAny
 from django.shortcuts import render, get_object_or_404
 from django.db.models import Q
+from rest_framework.response import Response
 from rest_framework.views import APIView
 from skincare.response import success_response
 from .models import Product, ProductImage
+from skincare.pagination import AdminPagination
+from shop.models import OrderItem
 from .serializers import ProductCreateAndUpdateserializer, ProductListserializer, ProductDetailsSerializer
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -31,14 +34,38 @@ class ProductCreateAndListApiView(APIView):
         tags=['Product']
     )
     def get(self, request, *args, **kwargs):
-        products = Product.objects.all().order_by("created_at")
-        serializer = ProductListserializer(products, many=True, context={"request": request})
+        products = Product.objects.select_related("category").prefetch_related("images").order_by("-created_at")
+
+        search = request.query_params.get("search", "").strip()
+        if search:
+            products = products.filter(
+                Q(title__icontains=search) | Q(sku__icontains=search) | Q(category__name__icontains=search)
+            )
+
+        category = request.query_params.get("category")
+        if category:
+            products = products.filter(category_id=category)
+
+        stock = request.query_params.get("stock")
+        if stock == "in-stock":
+            products = products.filter(stock__gt=0)
+        elif stock == "out-of-stock":
+            products = products.filter(stock=0)
+
+        paginator = AdminPagination()
+        page = paginator.paginate_queryset(products, request, view=self)
+        serializer = ProductListserializer(page, many=True, context={"request": request})
         return success_response(
             message="Product list fetched successfully",
-            data=serializer.data,
+            data={
+                "count": paginator.page.paginator.count,
+                "next": paginator.get_next_link(),
+                "previous": paginator.get_previous_link(),
+                "results": serializer.data,
+            },
             status_code=status.HTTP_200_OK
         )
-    
+
     @swagger_auto_schema(
         operation_summary="Create a new product",
         operation_description="Endpoint to create a new product. Only accessible by admin users.",
@@ -123,6 +150,12 @@ class ProductRetrieveUpdateDestroyApiView(APIView):
 
     def delete(self, request, pk, *args, **kwargs):
         product = get_object_or_404(Product, pk=pk)
+        # Order lines cascade with the product, so deleting it would rewrite past orders
+        if OrderItem.objects.filter(product=product).exists():
+            return Response(
+                {"error": "This product has orders and can't be deleted. Set its stock to 0 to stop selling it."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         product.delete()
         return success_response(
             message="Product deleted successfully",

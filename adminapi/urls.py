@@ -18,7 +18,8 @@ urlpatterns = [
 
     # Category
     path("category/", CategoryListCreateApiView.as_view(), name="category-create-and-list"),
-    path('categorie/<int:pk>/', CategoryRetrieveUpdateDeleteApiView.as_view(), name='category-detail'),
+    path('categories/<int:pk>/', CategoryRetrieveUpdateDeleteApiView.as_view(), name='category-detail'),
+    path('categorie/<int:pk>/', CategoryRetrieveUpdateDeleteApiView.as_view()),
 
     # Product
     path("product/", ProductCreateAndListApiView.as_view(), name="product-create-and-list"),
@@ -45,5 +46,6 @@ urlpatterns = [
     
     # Orders
     path("orders/", views.OrderListApiView.as_view(), name="order-list"),
+    path("orders/<int:pk>/", views.OrderDetailApiView.as_view(), name="order-detail"),
     path("orders/<int:pk>/mark-delivered/", views.OrderMarkDeliveredAPIView.as_view(), name="order-mark-delivered"),
 ]

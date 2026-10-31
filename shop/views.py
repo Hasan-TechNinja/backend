@@ -29,7 +29,7 @@ def queue_order_sync(order_id):
     """Push the order to the OMS after commit; never let a broker outage break checkout."""
     def _send():
         try:
-            sync_order_to_omniful.delay(order_id)
+            sync_order_to_omniful.apply_async(args=[order_id], retry=False, ignore_result=True)
         except Exception as e:
             logging.error(f"Could not queue Omniful sync for order {order_id}: {e}")
     transaction.on_commit(_send)

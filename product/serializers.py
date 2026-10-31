@@ -1,6 +1,9 @@
 from rest_framework import serializers
 from .models import Product, ProductImage
 from notifications.tasks import create_notification_task
+import logging
+
+logger = logging.getLogger(__name__)
 from category.models import Category
 
 
@@ -17,9 +20,13 @@ class ProductCreateAndUpdateserializer(serializers.ModelSerializer):
         model = Product
         fields = [
             "category", "title", "sub_title", "skin_type", "description",
-            "key_ingredients", "how_to_use", "key_benefits", "size", "price",
+            "key_ingredients", "how_to_use", "key_benefits", "size", "sku", "price",
             "discount", "stock", "images"
         ]
+
+    def validate_sku(self, value):
+        # Blank means no SKU; two blanks must not collide on the unique index
+        return (value or '').strip() or None
 
     def validate(self, attrs):
         title = attrs.get('title')
@@ -78,19 +85,23 @@ class ProductCreateAndUpdateserializer(serializers.ModelSerializer):
         for image in images:
             ProductImage.objects.create(product=product, image=image)
 
-        create_notification_task.delay(
-            user_id=request.user.id if request and request.user else None,
-            title="New Product Created",
-            body=f"A new product has been created",
-            data={
-                "id": product.id,
-                "title": product.title,
-                "image": product.images.first().image.url if product.images.exists() else None   
-            },
-            broadcast_user=False,
-            broadcast_admin=False,
-            broadcast_all=True
-        )
+        # A message broker outage must not fail the save
+        try:
+            create_notification_task.apply_async(kwargs=dict(
+                user_id=request.user.id if request and request.user else None,
+                title="New Product Created",
+                body=f"A new product has been created",
+                data={
+                    "id": product.id,
+                    "title": product.title,
+                    "image": product.images.first().image.url if product.images.exists() else None
+                },
+                broadcast_user=False,
+                broadcast_admin=False,
+                broadcast_all=True
+            ), retry=False, ignore_result=True)
+        except Exception as e:
+            logger.error(f"Could not queue product notification: {e}")
 
         return product
 
@@ -118,7 +129,7 @@ class ProductListserializer(serializers.ModelSerializer):
         model = Product
         fields = [
             "id", "category", "category_name", "title", "sub_title", "skin_type",
-            "description", "key_ingredients", "how_to_use", "key_benefits", "size",
+            "description", "key_ingredients", "how_to_use", "key_benefits", "size", "sku",
             "price", "discount", "stock", "images", "order_count", "created_at",
             "updated_at"
         ]

@@ -2,32 +2,72 @@ from django.http import Http404
 from rest_framework import generics
 from account.models import User, PrivacyPolicy, TermsAndConditions
 from .serializers import (
-    UserListSerializer, PrivacyPolicyListSerializer, TermsAndConditionsListSerializer, 
-    CustomerListSerializer, UserDetailSerializer, AnalyserListSerializer, 
-    AnalyserDetailSerializer, AdminUserSerializer
+    UserListSerializer, PrivacyPolicyListSerializer, TermsAndConditionsListSerializer,
+    CustomerListSerializer, UserDetailSerializer, AnalyserListSerializer,
+    AnalyserDetailSerializer, AdminUserSerializer, AdminCategorySerializer,
+    NON_SALE_STATUSES, get_payment_status
 )
 from account import permissions
 from category.models import Category
 from category.serializers import Categorylistserializer
+from skincare.pagination import AdminPagination
 from skincare.response import success_response
 from rest_framework import status
-from django.db.models import Count, Sum, Q
-from django.db.models.functions import ExtractMonth, ExtractDay, ExtractWeekDay
+from rest_framework.response import Response
+from django.db import transaction
+from django.db.models import Count, DecimalField, Q, Sum, Value
+from django.db.models.functions import Coalesce, ExtractMonth
 from shop.models import GeneratedRoutine
 from product.models import Product
 from django.utils import timezone
-from datetime import timedelta, datetime
+from datetime import timedelta
 from rest_framework.views import APIView
 from shop.models import Order
 from .serializers import OrderListSerializer
 import calendar
+import json
+
+# Orders that count as revenue
+REVENUE_STATUSES = ['paid', 'shipped', 'delivered']
+
+
+def percent_change(current, previous):
+    if not previous:
+        return 100.0 if current else 0.0
+    return round((current - previous) / previous * 100, 2)
+
+
+def get_routine_steps(routine):
+    """All morning and evening steps of a generated routine, tolerating malformed data."""
+    data = routine.routine_data
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(data, dict):
+        return []
+
+    steps = []
+    for key in ('am_routine', 'pm_routine'):
+        phase = data.get(key)
+        if isinstance(phase, list):
+            steps.extend(step for step in phase if isinstance(step, dict))
+    return steps
+
+
+def block_self_delete(request, user):
+    if user.pk == request.user.pk:
+        return Response({"error": "You can't delete your own account."}, status=status.HTTP_400_BAD_REQUEST)
+    return None
 
 # Create your views here.
 
 class UserListCreateApiView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAdminRole]
+    pagination_class = AdminPagination
     search_fields = ['username', 'email', 'profile__full_name']
-    
+
     def get_serializer_class(self):
         if self.request.method == 'POST':
             return AdminUserSerializer
@@ -72,6 +112,9 @@ class UserDeleteApiView(generics.DestroyAPIView):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        blocked = block_self_delete(request, instance)
+        if blocked:
+            return blocked
         self.perform_destroy(instance)
         return success_response(
             message="User deleted successfully",
@@ -83,8 +126,14 @@ class UserDeleteApiView(generics.DestroyAPIView):
 
 class CategoryListCreateApiView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAdminRole]
-    serializer_class = Categorylistserializer
-    queryset = Category.objects.all().order_by('-id')
+    serializer_class = AdminCategorySerializer
+    pagination_class = AdminPagination
+    search_fields = ['name']
+    queryset = Category.objects.annotate(
+        product_count=Count('products'),
+        quantity=Sum('products__stock'),
+        sale=Sum('products__order_count'),
+    ).order_by('-id')
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -150,14 +199,24 @@ class TermsAndConditionsListCreateApiView(generics.ListCreateAPIView, generics.R
 class CustomerListApiView(generics.ListAPIView):
     permission_classes = [permissions.IsAdminRole]
     serializer_class = CustomerListSerializer
+    pagination_class = AdminPagination
     search_fields = ['username', 'email', 'profile__full_name']
 
     def get_queryset(self):
-        # Customers who have purchased minimum one time
-        return User.objects.filter(role='user', orders__isnull=False).distinct().annotate(
+        customers = User.objects.filter(role='user').select_related('profile').annotate(
             orders_count=Count('orders', distinct=True),
-            total_spent=Sum('orders__total_amount')
-        ).order_by('-id')
+            total_spent=Coalesce(
+                Sum('orders__total_amount', filter=~Q(orders__status__in=NON_SALE_STATUSES)),
+                Value(0),
+                output_field=DecimalField(max_digits=10, decimal_places=2),
+            ),
+        )
+        sort = self.request.query_params.get('sort')
+        if sort == 'high-orders':
+            return customers.order_by('-orders_count', '-id')
+        if sort == 'low-orders':
+            return customers.order_by('orders_count', '-id')
+        return customers.order_by('-id')
 
 
 class UserDetailApiView(generics.RetrieveUpdateDestroyAPIView):
@@ -203,6 +262,9 @@ class UserDetailApiView(generics.RetrieveUpdateDestroyAPIView):
 
     def delete(self, request, *args, **kwargs):
         instance = self.get_object()
+        blocked = block_self_delete(request, instance)
+        if blocked:
+            return blocked
         self.perform_destroy(instance)
         return success_response(
             message="User deleted successfully",
@@ -214,9 +276,15 @@ class UserDetailApiView(generics.RetrieveUpdateDestroyAPIView):
 class AnalyserListApiView(generics.ListAPIView):
     permission_classes = [permissions.IsAdminRole]
     serializer_class = AnalyserListSerializer
+    pagination_class = AdminPagination
+    search_fields = ['email', 'profile__full_name']
 
     def get_queryset(self):
-        return User.objects.filter(routines__isnull=False).distinct().order_by('-id')
+        users = User.objects.filter(routines__isnull=False).select_related('profile').distinct().order_by('-id')
+        active_status = self.request.query_params.get('status')
+        if active_status in ('active', 'inactive'):
+            users = users.filter(is_active=active_status == 'active')
+        return users
 
 
 class AnalyserDetailApiView(generics.RetrieveDestroyAPIView):
@@ -229,10 +297,10 @@ class AnalyserDetailApiView(generics.RetrieveDestroyAPIView):
         return User.objects.filter(routines__isnull=False).distinct().get(pk=self.kwargs['pk'])
 
     def delete(self, request, *args, **kwargs):
-        instance = self.get_object()
-        self.perform_destroy(instance)
+        # Clears the skin analyses only; the user's account and orders stay
+        self.get_object().routines.all().delete()
         return success_response(
-            message="User deleted successfully",
+            message="Skin analyses deleted successfully",
             data=None,
             status_code=status.HTTP_200_OK
         )
@@ -253,36 +321,14 @@ class AIAnalyticsProductListView(APIView):
         def count_products(routines):
             counts = {}
             for r in routines:
-                data = r.routine_data
-                if not data:
-                    continue
-                
-                # Handle cases where routine_data might be a string (SQLite/Mismatched migrations)
-                if isinstance(data, str):
-                    import json
-                    try:
-                        data = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-                
-                if not isinstance(data, dict):
-                    continue
-
-                am_steps = data.get('am_routine', [])
-                pm_steps = data.get('pm_routine', [])
-                
-                if not isinstance(am_steps, list): am_steps = []
-                if not isinstance(pm_steps, list): pm_steps = []
-
-                for step in am_steps + pm_steps:
-                    if isinstance(step, dict):
-                        pid = step.get('product_id')
-                        if pid is not None:
-                            try:
-                                pid_int = int(pid)
-                                counts[pid_int] = counts.get(pid_int, 0) + 1
-                            except (ValueError, TypeError):
-                                continue
+                for step in get_routine_steps(r):
+                    pid = step.get('product_id')
+                    if pid is not None:
+                        try:
+                            pid_int = int(pid)
+                            counts[pid_int] = counts.get(pid_int, 0) + 1
+                        except (ValueError, TypeError):
+                            continue
             return counts
 
         current_counts = count_products(routines_current)
@@ -292,7 +338,7 @@ class AIAnalyticsProductListView(APIView):
         # Fetch products that have at least one recommendation
         # Convert keys to list of ints for strict DB compatibility
         recommended_pids = list(all_counts.keys())
-        
+
         if not recommended_pids:
             return success_response(
                 message="No AI Analytics data available yet",
@@ -301,7 +347,7 @@ class AIAnalyticsProductListView(APIView):
             )
 
         products = Product.objects.select_related('category').prefetch_related('images').filter(id__in=recommended_pids)
-        
+
         result = []
         category_performance = {}
 
@@ -315,7 +361,7 @@ class AIAnalyticsProductListView(APIView):
             cat_name = p.category.name if p.category else "Uncategorized"
             if cat_name not in category_performance:
                 category_performance[cat_name] = {"current": 0, "previous": 0}
-            
+
             category_performance[cat_name]["current"] += cur
             category_performance[cat_name]["previous"] += prev
 
@@ -333,7 +379,7 @@ class AIAnalyticsProductListView(APIView):
             top_for = p.key_benefits if p.key_benefits else ""
             if len(top_for) > 60:
                 top_for = top_for[:57] + "..."
-            
+
             # Get first image URL
             image_url = ""
             first_image = p.images.first()
@@ -374,98 +420,172 @@ class AIAnalyticsProductListView(APIView):
 class DashboardSummaryView(APIView):
     permission_classes = [permissions.IsAdminRole]
 
+    @staticmethod
+    def _sale_chart(request, today):
+        """Revenue per month (this year vs last year) or per day (last N days vs the N before)."""
+        sales = Order.objects.filter(status__in=REVENUE_STATUSES)
+        period = request.query_params.get('range', 'year')
+
+        if period in ('7', '30'):
+            days = int(period)
+            start = today - timedelta(days=days - 1)
+            previous_start = start - timedelta(days=days)
+            daily = sales.filter(created_at__date__gte=previous_start).values('created_at__date').annotate(total=Sum('total_amount'))
+            totals = {item['created_at__date']: float(item['total'] or 0) for item in daily}
+            return {
+                "year": today.year,
+                "range": period,
+                "points": [
+                    {
+                        "month": (start + timedelta(days=i)).strftime("%b %d"),
+                        "thisMonth": round(totals.get(start + timedelta(days=i), 0.0), 2),
+                        "lastMonth": round(totals.get(previous_start + timedelta(days=i), 0.0), 2),
+                    }
+                    for i in range(days)
+                ],
+            }
+
+        try:
+            year = int(request.query_params.get('year', today.year))
+        except ValueError:
+            year = today.year
+
+        def monthly(for_year):
+            rows = sales.filter(created_at__year=for_year).annotate(month=ExtractMonth('created_at')).values('month').annotate(total=Sum('total_amount'))
+            return {item['month']: float(item['total'] or 0) for item in rows}
+
+        this_year = monthly(year)
+        last_year = monthly(year - 1)
+        return {
+            "year": year,
+            "range": "year",
+            "points": [
+                {
+                    "month": calendar.month_abbr[i],
+                    "thisMonth": round(this_year.get(i, 0.0), 2),
+                    "lastMonth": round(last_year.get(i, 0.0), 2),
+                }
+                for i in range(1, 13)
+            ],
+        }
+
+    @staticmethod
+    def _weekly_chart(queryset, date_field, today):
+        """Daily counts for the last 7 days against the 7 days before."""
+        start = today - timedelta(days=6)
+        previous_start = start - timedelta(days=7)
+        lookup = f'{date_field}__date'
+        rows = queryset.filter(**{f'{lookup}__gte': previous_start}).values(lookup).annotate(count=Count('id'))
+        counts = {item[lookup]: item['count'] for item in rows}
+
+        points = [
+            {
+                "day": i + 1,
+                "thisWeek": counts.get(start + timedelta(days=i), 0),
+                "lastWeek": counts.get(previous_start + timedelta(days=i), 0),
+                "label": (start + timedelta(days=i)).strftime("%b %d"),
+            }
+            for i in range(7)
+        ]
+        this_week = sum(point["thisWeek"] for point in points)
+        last_week = sum(point["lastWeek"] for point in points)
+        return {
+            "points": points,
+            "this_week": this_week,
+            "last_week": last_week,
+            "change": percent_change(this_week, last_week),
+            "range_label": f'{points[0]["label"]} - {points[-1]["label"]}',
+        }
+
     def get(self, request):
-        # 1. Total Revenue (Sum of paid/shipped/delivered orders)
-        revenue_data = Order.objects.filter(
-            status__in=['paid', 'shipped', 'delivered']
-        ).aggregate(total=Sum('total_amount'))
-        total_revenue = float(revenue_data['total'] or 0.0)
+        now = timezone.now()
+        today = now.date()
+        month_start = now - timedelta(days=30)
+        previous_month_start = now - timedelta(days=60)
+        week_start = now - timedelta(days=7)
 
-        # 2. Total Orders
+        def in_month(queryset, field='created_at'):
+            return queryset.filter(**{f'{field}__gte': month_start})
+
+        def in_previous_month(queryset, field='created_at'):
+            return queryset.filter(**{f'{field}__gte': previous_month_start, f'{field}__lt': month_start})
+
+        def revenue(queryset):
+            return float(queryset.aggregate(total=Sum('total_amount'))['total'] or 0.0)
+
+        def recommendations(routines):
+            return sum(len(get_routine_steps(r)) for r in routines)
+
+        sales = Order.objects.filter(status__in=REVENUE_STATUSES)
+        customers = User.objects.filter(role='user')
+        routines = GeneratedRoutine.objects.all()
+
+        # 1-3. Headline totals
+        total_revenue = revenue(sales)
         total_orders = Order.objects.count()
-
-        # 3. Total Customers
-        total_customers = User.objects.filter(role='user').count()
+        total_customers = customers.count()
 
         # 4. Product Views (Using total AI recommendations as proxy for engagement)
-        total_views = 0
-        routines = GeneratedRoutine.objects.all()
-        for r in routines:
-            if not r.routine_data:
-                continue
-            data = r.routine_data
-            if isinstance(data, str):
-                import json
-                try:
-                    data = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-            
-            am_steps = data.get('am_routine', []) if isinstance(data, dict) else []
-            pm_steps = data.get('pm_routine', []) if isinstance(data, dict) else []
-            total_views += len(am_steps) + len(pm_steps)
+        total_views = recommendations(routines)
 
-        # 5. Conversion Rate (Paid Orders / Total Users * 100)
-        paid_orders = Order.objects.filter(status__in=['paid', 'shipped', 'delivered']).count()
-        conversion_rate = 0.0
-        if total_customers > 0:
-            conversion_rate = (paid_orders / total_customers) * 100
+        # 5. Conversion Rate (customers with a paid order / all customers * 100)
+        buyers = customers.filter(orders__status__in=REVENUE_STATUSES).distinct().count()
+        conversion_rate = (buyers / total_customers) * 100 if total_customers else 0.0
 
-        # 6. Performance (Total counts by status)
-        new_orders_total = Order.objects.filter(status__in=['pending', 'paid']).count()
-        shipped_orders_total = Order.objects.filter(status='shipped').count()
-        delivered_orders_total = Order.objects.filter(status='delivered').count()
-        cancelled_orders_total = Order.objects.filter(status='cancelled').count()
+        # 6. Performance (last 7 days, by status)
+        recent = Order.objects.filter(created_at__gte=week_start)
+        new_orders = recent.filter(status__in=['pending', 'paid']).count()
+        shipped_orders = recent.filter(status='shipped').count()
+        delivered_orders = recent.filter(status='delivered').count()
+        cancelled_orders = recent.filter(status='cancelled').count()
 
-        # 7. Sale Chart (Monthly Revenue for current vs last year)
-        current_year = timezone.now().year
-        last_year = current_year - 1
-        month_abbr = list(calendar.month_abbr)[1:]
-
-        this_year_revenue = Order.objects.filter(
-            status__in=['paid', 'shipped', 'delivered', 'completed'],
-            created_at__year=current_year
-        ).annotate(month=ExtractMonth('created_at')).values('month').annotate(total=Sum('total_amount'))
-        
-        last_year_revenue = Order.objects.filter(
-            status__in=['paid', 'shipped', 'delivered', 'completed'],
-            created_at__year=last_year
-        ).annotate(month=ExtractMonth('created_at')).values('month').annotate(total=Sum('total_amount'))
-        
-        this_year_dict = {item['month']: float(item['total'] or 0) for item in this_year_revenue}
-        last_year_dict = {item['month']: float(item['total'] or 0) for item in last_year_revenue}
-        
-        sale_chart = []
-        for i in range(1, 13):
-            sale_chart.append({
-                "month": month_abbr[i-1],
-                "thisMonth": round(this_year_dict.get(i, 0.0), 2),
-                "lastMonth": round(last_year_dict.get(i, 0.0), 2)
+        # 7. Top products
+        top_products = []
+        for product in Product.objects.filter(order_count__gt=0).prefetch_related('images').order_by('-order_count')[:4]:
+            first_image = product.images.first()
+            top_products.append({
+                "id": product.id,
+                "name": product.title,
+                "price": float(product.price),
+                "units_sold": product.order_count,
+                "image": request.build_absolute_uri(first_image.image.url) if first_image and first_image.image else None,
             })
 
-        # 8. Order Chart (Last 7 days vs Previous 7 days)
-        today = timezone.now().date()
-        this_week_start = today - timedelta(days=6)
-        last_week_start = today - timedelta(days=13)
-        last_week_end = today - timedelta(days=7)
-        
-        this_week_orders = Order.objects.filter(created_at__date__gte=this_week_start).values('created_at__date').annotate(count=Count('id'))
-        last_week_orders = Order.objects.filter(created_at__date__gte=last_week_start, created_at__date__lte=last_week_end).values('created_at__date').annotate(count=Count('id'))
-        
-        this_week_dict = {item['created_at__date']: item['count'] for item in this_week_orders}
-        last_week_dict = {item['created_at__date']: item['count'] for item in last_week_orders}
-        
-        order_chart = []
-        for i in range(7):
-            current_day = this_week_start + timedelta(days=i)
-            prev_day = current_day - timedelta(days=7)
-            
-            order_chart.append({
-                "day": i + 1,
-                "thisWeek": this_week_dict.get(current_day, 0),
-                "lastWeek": last_week_dict.get(prev_day, 0),
-                "label": current_day.strftime("%b %d")
+        # 8. Latest orders
+        latest_orders = Order.objects.select_related('payment_transaction').prefetch_related('items__product__images').order_by('-created_at')
+        recent_transactions = [
+            {
+                "id": order.id,
+                "name": order.full_name,
+                "date": order.created_at.isoformat(),
+                "amount": float(order.total_amount),
+                "status": get_payment_status(order),
+            }
+            for order in latest_orders.exclude(status__in=NON_SALE_STATUSES)[:9]
+        ]
+
+        recent_orders = []
+        for order in latest_orders.filter(created_at__gte=month_start)[:6]:
+            items = list(order.items.all())
+            first_item = items[0] if items else None
+            first_image = first_item.product.images.first() if first_item else None
+            recent_orders.append({
+                "id": order.id,
+                "product": first_item.product.title if first_item else "-",
+                "sku": first_item.product.sku if first_item else "",
+                "image": request.build_absolute_uri(first_image.image.url) if first_image and first_image.image else None,
+                "extra_items": max(len(items) - 1, 0),
+                "quantity": sum(item.quantity for item in items),
+                "date": order.created_at.isoformat(),
+                "status": order.status,
+                "amount": float(order.total_amount),
             })
+
+        # 9. Most ordered areas
+        top_areas = list(
+            Order.objects.exclude(status__in=NON_SALE_STATUSES).exclude(city='')
+            .values('city').annotate(orders=Count('id')).order_by('-orders')[:5]
+        )
 
         data = {
             "total_revenue": total_revenue,
@@ -473,14 +593,28 @@ class DashboardSummaryView(APIView):
             "total_customers": total_customers,
             "product_views": total_views,
             "conversion_rate": round(conversion_rate, 3),
-            "performance": {
-                "new_orders": new_orders_total,
-                "shipped_orders": shipped_orders_total,
-                "delivered_orders": delivered_orders_total,
-                "cancelled_orders": cancelled_orders_total
+            # Each headline figure compared to the 30 days before
+            "changes": {
+                "revenue": percent_change(revenue(in_month(sales)), revenue(in_previous_month(sales))),
+                "orders": percent_change(in_month(Order.objects).count(), in_previous_month(Order.objects).count()),
+                "customers": percent_change(in_month(customers, 'date_joined').count(), in_previous_month(customers, 'date_joined').count()),
+                "views": percent_change(recommendations(in_month(routines)), recommendations(in_previous_month(routines))),
+                "conversion": percent_change(in_month(sales).count(), in_previous_month(sales).count()),
             },
-            "sale_chart": sale_chart,
-            "order_chart": order_chart
+            "performance": {
+                "new_orders": new_orders,
+                "shipped_orders": shipped_orders,
+                "delivered_orders": delivered_orders,
+                "cancelled_orders": cancelled_orders,
+                "total": new_orders + shipped_orders + delivered_orders + cancelled_orders,
+            },
+            "sale_chart": self._sale_chart(request, today),
+            "order_chart": self._weekly_chart(Order.objects.all(), 'created_at', today),
+            "customer_chart": self._weekly_chart(customers, 'date_joined', today),
+            "top_products": top_products,
+            "recent_transactions": recent_transactions,
+            "recent_orders": recent_orders,
+            "top_areas": top_areas,
         }
 
         return success_response(
@@ -493,9 +627,51 @@ class DashboardSummaryView(APIView):
 class OrderListApiView(generics.ListAPIView):
     permission_classes = [permissions.IsAdminRole]
     serializer_class = OrderListSerializer
+    pagination_class = AdminPagination
+    search_fields = ['id', 'full_name', 'user__email', 'phone', 'city']
 
     def get_queryset(self):
-        return Order.objects.select_related('user').prefetch_related('items__product').order_by('-created_at')
+        orders = Order.objects.select_related('user', 'payment_transaction').prefetch_related('items__product__images').order_by('-created_at')
+        order_status = self.request.query_params.get('status')
+        if order_status:
+            orders = orders.filter(status=order_status)
+        return orders
+
+
+class OrderDetailApiView(generics.RetrieveDestroyAPIView):
+    permission_classes = [permissions.IsAdminRole]
+    serializer_class = OrderListSerializer
+    queryset = Order.objects.select_related('user').prefetch_related('items__product__images')
+
+    def delete(self, request, *args, **kwargs):
+        order = self.get_object()
+        # Real sales stay on record; only abandoned orders can be removed
+        if order.status not in NON_SALE_STATUSES:
+            return Response(
+                {"error": "Only cancelled or failed orders can be deleted. Cancel this order first."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        order.delete()
+        return success_response(
+            message="Order deleted successfully",
+            data=None,
+            status_code=status.HTTP_200_OK
+        )
+
+
+def stock_was_taken(order):
+    """COD takes stock when the order is placed; card orders only once payment succeeds."""
+    if getattr(order, 'payment_transaction', None) is None:
+        return True
+    return order.status in REVENUE_STATUSES
+
+
+def restock_order(order):
+    for item in order.items.all():
+        product = Product.objects.select_for_update().get(id=item.product_id)
+        product.stock += item.quantity
+        product.order_count = max(0, product.order_count - item.quantity)
+        product.save(update_fields=['stock', 'order_count'])
 
 
 class OrderMarkDeliveredAPIView(APIView):
@@ -507,58 +683,32 @@ class OrderMarkDeliveredAPIView(APIView):
         except Order.DoesNotExist:
             raise Http404
 
-        status_input = request.data.get('status')
-        if status_input:
-            status_map = {
-                'pending': 'pending',
-                'shipped': 'shipped',
-                'delivered': 'delivered',
-                'cancelled': 'cancelled'
-            }
-            
-            # Normalize the status input
-            db_status = status_map.get(str(status_input).lower().strip())
-            
-            # Fallback if provided exact db status choices
-            if not db_status:
-                if str(status_input).lower().strip() in [s[0] for s in Order.STATUS_CHOICES]:
-                    db_status = str(status_input).lower().strip()
-                else:
-                    return success_response(
-                        message="Invalid status provided",
-                        data=None,
-                        status_code=status.HTTP_400_BAD_REQUEST
-                    )
-            
-            if order.status == db_status:
-                return success_response(
-                    message=f"Order is already {db_status}",
-                    data=OrderListSerializer(order).data,
-                    status_code=status.HTTP_200_OK
-                )
-            
+        db_status = str(request.data.get('status') or 'delivered').lower().strip()
+        if db_status not in [s[0] for s in Order.STATUS_CHOICES]:
+            return Response({"error": "Invalid status provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        context = {"request": request}
+        if order.status == db_status:
+            return success_response(
+                message=f"Order is already {db_status}",
+                data=OrderListSerializer(order, context=context).data,
+                status_code=status.HTTP_200_OK
+            )
+
+        if order.status == 'cancelled':
+            return Response(
+                {"error": "A cancelled order can't be reopened."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            if db_status == 'cancelled' and stock_was_taken(order):
+                restock_order(order)
             order.status = db_status
             order.save()
 
-            return success_response(
-                message=f"Order status updated to {db_status}",
-                data=OrderListSerializer(order).data,
-                status_code=status.HTTP_200_OK
-            )
-
-        # Fallback for previous behavior
-        if order.status == 'delivered':
-            return success_response(
-                message="Order already delivered",
-                data=OrderListSerializer(order).data,
-                status_code=status.HTTP_200_OK
-            )
-
-        order.status = 'delivered'
-        order.save()
-
         return success_response(
-            message="Order marked as delivered",
-            data=OrderListSerializer(order).data,
+            message=f"Order status updated to {db_status}",
+            data=OrderListSerializer(order, context=context).data,
             status_code=status.HTTP_200_OK
         )
