@@ -31,6 +31,32 @@ class Product(models.Model):
     how_to_use = models.TextField(blank=True, null=True)
     # video = models.FileField(upload_to='products/videos/', blank=True, null=True)
     order_count = models.PositiveIntegerField(default=0)
+
+    # Product page sections. List items are stored as JSON, see PAGE_LIST_FIELDS in serializers.
+    hero_eyebrow = models.CharField(max_length=120, blank=True, default='')
+    image_badge = models.CharField(max_length=120, blank=True, default='')
+    benefits = models.JSONField(default=list, blank=True)
+    why_heading = models.CharField(max_length=255, blank=True, default='')
+    why_body = models.TextField(blank=True, default='')
+    concerns = models.JSONField(default=list, blank=True)
+    ingredients_heading = models.CharField(max_length=255, blank=True, default='')
+    ingredients_body = models.TextField(blank=True, default='')
+    ingredients_badge = models.CharField(max_length=120, blank=True, default='')
+    ingredients_image = models.ImageField(upload_to='products/sections/', blank=True, null=True)
+    ingredients = models.JSONField(default=list, blank=True)
+    texture_heading = models.CharField(max_length=255, blank=True, default='')
+    texture_body = models.TextField(blank=True, default='')
+    texture_image = models.ImageField(upload_to='products/sections/', blank=True, null=True)
+    texture_points = models.JSONField(default=list, blank=True)
+    ritual_heading = models.CharField(max_length=255, blank=True, default='')
+    morning_ritual = models.JSONField(default=list, blank=True)
+    night_ritual = models.JSONField(default=list, blank=True)
+    specifications = models.JSONField(default=list, blank=True)
+    suitable_for = models.JSONField(default=list, blank=True)
+    faqs = models.JSONField(default=list, blank=True)
+    # Arabic copies of the text above, e.g. {"ar": {"title": ..., "faqs": [...]}}
+    translations = models.JSONField(default=dict, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -69,3 +95,30 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f"Image of {self.product.title}"
+
+
+class StorefrontSettings(models.Model):
+    """Site-wide shop settings. There is a single row, read with load()."""
+
+    # While on, the shop nav and /products lead straight to the featured product
+    single_product_mode = models.BooleanField(default=True)
+    featured_product = models.ForeignKey(
+        Product, on_delete=models.SET_NULL, blank=True, null=True, related_name='+'
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Storefront settings"
+        verbose_name_plural = "Storefront settings"
+
+    @classmethod
+    def load(cls):
+        settings_row, _ = cls.objects.get_or_create(pk=1)
+        return settings_row
+
+    @property
+    def shows_single_product(self):
+        return self.single_product_mode and self.featured_product_id is not None
+
+    def __str__(self):
+        return "Storefront settings"

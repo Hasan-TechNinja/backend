@@ -1,6 +1,6 @@
 from django.urls import path
 from category.views import CategoryRetrieveUpdateDeleteApiView
-from product.views import ProductCreateAndListApiView,ProductRetrieveUpdateDestroyApiView
+from product.views import ProductCreateAndListApiView,ProductRetrieveUpdateDestroyApiView,AdminStorefrontView
 from .views import UserListCreateApiView, UserDeleteApiView, CategoryListCreateApiView, CustomerListApiView
 from . import views
 
@@ -24,6 +24,9 @@ urlpatterns = [
     # Product
     path("product/", ProductCreateAndListApiView.as_view(), name="product-create-and-list"),
     path('products/<int:pk>/', ProductRetrieveUpdateDestroyApiView.as_view(), name='product-detail'),
+
+    # Storefront
+    path("storefront/", AdminStorefrontView.as_view(), name="storefront"),
 
     # Privacy Policy
     path("privacy-policy/", views.PrivacyPolicyListCreateApiView.as_view(), name="privacy-policy-create-and-list"),

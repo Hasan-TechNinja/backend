@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Product, ProductImage
+from .models import Product, ProductImage, StorefrontSettings
 from django.utils.html import format_html
 
 # Register your models here.
@@ -79,3 +79,10 @@ class ProductImageAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" width="50" height="50" style="object-fit:cover;" />', obj.image.url)
         return "No Image"
     image_preview.short_description = "Image"
+
+@admin.register(StorefrontSettings)
+class StorefrontSettingsAdmin(admin.ModelAdmin):
+    list_display = ("id", "single_product_mode", "featured_product", "updated_at")
+
+    def has_add_permission(self, request):
+        return not StorefrontSettings.objects.exists()

@@ -4,10 +4,13 @@ from django.db.models import Q
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from skincare.response import success_response
-from .models import Product, ProductImage
+from .models import Product, ProductImage, StorefrontSettings
 from skincare.pagination import AdminPagination
 from shop.models import OrderItem
-from .serializers import ProductCreateAndUpdateserializer, ProductListserializer, ProductDetailsSerializer
+from .serializers import (
+    ProductCreateAndUpdateserializer, ProductListserializer, ProductDetailsSerializer,
+    ProductPageSerializer, StorefrontSettingsSerializer, public_storefront_data,
+)
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 from account.permissions import IsAdminRole, IsUserRole
@@ -107,13 +110,13 @@ class ProductRetrieveUpdateDestroyApiView(APIView):
     )
     def get(self, request, pk, *args, **kwargs):
         product = get_object_or_404(Product, pk=pk)
-        serializer = ProductListserializer(product, context={"request": request})
+        serializer = ProductPageSerializer(product, context={"request": request})
         return success_response(
             message="Product fetched successfully",
             data=serializer.data,
             status_code=status.HTTP_200_OK
         )
-    
+
     @swagger_auto_schema(
         operation_summary="Update a product",
         operation_description="Endpoint to update a product. Only accessible by admin users.",
@@ -134,7 +137,7 @@ class ProductRetrieveUpdateDestroyApiView(APIView):
         updated_product = serializer.save()
         return success_response(
             message="Product updated successfully",
-            data=ProductListserializer(updated_product, context={"request": request}).data,
+            data=ProductPageSerializer(updated_product, context={"request": request}).data,
             status_code=status.HTTP_200_OK
         )
 
@@ -365,3 +368,42 @@ class ProductsDetailsView(APIView):
             data=serializer.data,
             status_code=status.HTTP_200_OK
         )
+
+class StorefrontView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        operation_summary="Storefront settings",
+        operation_description="Whether the shop shows a single product, and which one. Accessible by all users.",
+        tags=['Storefront']
+    )
+    def get(self, request, *args, **kwargs):
+        return success_response(
+            message="Storefront fetched successfully",
+            data=public_storefront_data(StorefrontSettings.load()),
+        )
+
+
+class AdminStorefrontView(APIView):
+    permission_classes = [IsAdminRole]
+
+    @swagger_auto_schema(
+        operation_summary="Get storefront settings",
+        responses={200: StorefrontSettingsSerializer()},
+        tags=['Storefront']
+    )
+    def get(self, request, *args, **kwargs):
+        serializer = StorefrontSettingsSerializer(StorefrontSettings.load())
+        return success_response(message="Storefront fetched successfully", data=serializer.data)
+
+    @swagger_auto_schema(
+        operation_summary="Update storefront settings",
+        request_body=StorefrontSettingsSerializer,
+        responses={200: StorefrontSettingsSerializer()},
+        tags=['Storefront']
+    )
+    def patch(self, request, *args, **kwargs):
+        serializer = StorefrontSettingsSerializer(StorefrontSettings.load(), data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return success_response(message="Storefront updated successfully", data=serializer.data)
